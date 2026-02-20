@@ -1,0 +1,12 @@
+include: package:very_good_analysis/analysis_options.yaml
+
+linter:
+  rules:
+    public_member_api_docs: true
+    curly_braces_in_flow_control_structures: true
+
+analyzer:
+  exclude:
+    - "lib/generated/**"
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"

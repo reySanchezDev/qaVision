@@ -1,0 +1,336 @@
+{
+    "@@locale": "es",
+    "appTitle": "QAVision",
+    "@appTitle": {
+        "description": "Título principal de la app"
+    },
+    "settingsTitle": "Configuración del Sistema",
+    "@settingsTitle": {
+        "description": "Título de la pantalla de configuración"
+    },
+    "settingsRootFolder": "Carpeta raíz de capturas",
+    "@settingsRootFolder": {
+        "description": "Label de la sección carpeta raíz"
+    },
+    "settingsSelectFolder": "Seleccionar Carpeta",
+    "@settingsSelectFolder": {
+        "description": "Botón para seleccionar carpeta raíz"
+    },
+    "settingsFloatingButton": "Botón flotante",
+    "@settingsFloatingButton": {
+        "description": "Sección del botón flotante"
+    },
+    "settingsShowFloatingButton": "Mostrar botón flotante",
+    "@settingsShowFloatingButton": {
+        "description": "Checkbox mostrar botón flotante"
+    },
+    "settingsStartWithWindows": "Iniciar con Windows",
+    "@settingsStartWithWindows": {
+        "description": "Checkbox iniciar con Windows"
+    },
+    "settingsFloatingButtonColor": "Color del botón flotante",
+    "@settingsFloatingButtonColor": {
+        "description": "Label selector de color"
+    },
+    "settingsSaveFormat": "Formato de guardado",
+    "@settingsSaveFormat": {
+        "description": "Sección formato"
+    },
+    "settingsSaveFormatDescription": "Todas las capturas se guardan como JPG (alta resolución).",
+    "@settingsSaveFormatDescription": {
+        "description": "Descripción del formato"
+    },
+    "settingsJpgQuality": "Calidad JPG",
+    "@settingsJpgQuality": {
+        "description": "Sección calidad"
+    },
+    "settingsQualityHigh": "Alta",
+    "@settingsQualityHigh": {
+        "description": "Opción calidad alta"
+    },
+    "settingsQualityMax": "Máxima",
+    "@settingsQualityMax": {
+        "description": "Opción calidad máxima"
+    },
+    "settingsFileNameFormat": "Formato de nombre de archivo",
+    "@settingsFileNameFormat": {
+        "description": "Sección máscara de nombre"
+    },
+    "settingsFileNameMask": "Máscara de nombre",
+    "@settingsFileNameMask": {
+        "description": "Label campo máscara"
+    },
+    "settingsAfterCapture": "Después de capturar",
+    "@settingsAfterCapture": {
+        "description": "Sección post-captura"
+    },
+    "settingsSaveAndOpenViewer": "Guardar y abrir visor",
+    "@settingsSaveAndOpenViewer": {
+        "description": "Radio opción visor"
+    },
+    "settingsSaveAndShowThumbnail": "Guardar y mostrar miniatura (3s)",
+    "@settingsSaveAndShowThumbnail": {
+        "description": "Radio opción miniatura"
+    },
+    "settingsSaveSilent": "Guardar silencioso (sin visor ni miniatura)",
+    "@settingsSaveSilent": {
+        "description": "Radio opción silencioso"
+    },
+    "settingsCopyToClipboard": "Copiar automáticamente al portapapeles después de capturar",
+    "@settingsCopyToClipboard": {
+        "description": "Checkbox portapapeles"
+    },
+    "settingsHotkeys": "Atajos de teclado",
+    "@settingsHotkeys": {
+        "description": "Sección hotkeys"
+    },
+    "settingsHotkeyTraditional": "Captura Tradicional",
+    "@settingsHotkeyTraditional": {
+        "description": "Label hotkey tradicional"
+    },
+    "settingsHotkeyClipMode": "Modo Clip ON/OFF",
+    "@settingsHotkeyClipMode": {
+        "description": "Label hotkey clip"
+    },
+    "settingsHotkeyOpenViewer": "Abrir Visor",
+    "@settingsHotkeyOpenViewer": {
+        "description": "Label hotkey visor"
+    },
+    "settingsSaveConfig": "Guardar configuración",
+    "@settingsSaveConfig": {
+        "description": "Botón guardar config"
+    },
+    "settingsResetDefaults": "Restablecer valores por defecto",
+    "@settingsResetDefaults": {
+        "description": "Botón reset"
+    },
+    "settingsHotkeyConflict": "Esta combinación ya está en uso. Elige otra.",
+    "@settingsHotkeyConflict": {
+        "description": "Mensaje de conflicto de hotkey"
+    },
+    "settingsClipMode": "Modo Clip",
+    "@settingsClipMode": {
+        "description": "Sección modo clip"
+    },
+    "settingsClipLeftClick": "Capturar solo clic izquierdo",
+    "@settingsClipLeftClick": {
+        "description": "Checkbox clic izquierdo"
+    },
+    "settingsClipIgnoreScrollbar": "Ignorar clic en barras de desplazamiento",
+    "@settingsClipIgnoreScrollbar": {
+        "description": "Checkbox ignorar scroll"
+    },
+    "settingsClipInterval": "Capturar cada X segundos (intervalo)",
+    "@settingsClipInterval": {
+        "description": "Checkbox intervalo"
+    },
+    "settingsClipIntervalSeconds": "Intervalo (segundos)",
+    "@settingsClipIntervalSeconds": {
+        "description": "Label campo intervalo"
+    },
+    "settingsViewer": "Visor / Editor",
+    "@settingsViewer": {
+        "description": "Sección visor"
+    },
+    "settingsShowRecentStrip": "Mostrar tira de \"Capturas recientes\" (últimas 5)",
+    "@settingsShowRecentStrip": {
+        "description": "Checkbox tira recientes"
+    },
+    "settingsShowSavedIndicator": "Mostrar indicador \"Guardado\"",
+    "@settingsShowSavedIndicator": {
+        "description": "Checkbox indicador guardado"
+    },
+    "projectsTitle": "Proyectos",
+    "@projectsTitle": {
+        "description": "Título pantalla proyectos"
+    },
+    "projectsNewProject": "Nuevo Proyecto",
+    "@projectsNewProject": {
+        "description": "Botón nuevo proyecto"
+    },
+    "projectsCreate": "Crear proyecto",
+    "@projectsCreate": {
+        "description": "Título modal crear"
+    },
+    "projectsEdit": "Editar proyecto",
+    "@projectsEdit": {
+        "description": "Título modal editar"
+    },
+    "projectsName": "Nombre del proyecto",
+    "@projectsName": {
+        "description": "Label nombre"
+    },
+    "projectsAlias": "Alias corto (2–4 letras)",
+    "@projectsAlias": {
+        "description": "Label alias"
+    },
+    "projectsColor": "Color del proyecto",
+    "@projectsColor": {
+        "description": "Label color"
+    },
+    "projectsSetDefault": "Establecer como predeterminado",
+    "@projectsSetDefault": {
+        "description": "Checkbox predeterminado"
+    },
+    "projectsCreateButton": "Crear",
+    "@projectsCreateButton": {
+        "description": "Botón crear"
+    },
+    "projectsCancelButton": "Cancelar",
+    "@projectsCancelButton": {
+        "description": "Botón cancelar"
+    },
+    "projectsEditButton": "Editar",
+    "@projectsEditButton": {
+        "description": "Botón editar"
+    },
+    "projectsOpenFolder": "Abrir Carpeta",
+    "@projectsOpenFolder": {
+        "description": "Botón abrir carpeta"
+    },
+    "projectsSetDefaultButton": "Establecer Predeterminado",
+    "@projectsSetDefaultButton": {
+        "description": "Botón set default"
+    },
+    "floatingButtonTooltip": "Proyecto activo: {projectName}",
+    "@floatingButtonTooltip": {
+        "description": "Tooltip del botón flotante",
+        "placeholders": {
+            "projectName": {
+                "type": "String"
+            }
+        }
+    },
+    "floatingPanelTitle": "Capturas",
+    "@floatingPanelTitle": {
+        "description": "Título del panel flotante"
+    },
+    "floatingActiveProject": "Proyecto activo",
+    "@floatingActiveProject": {
+        "description": "Label proyecto activo"
+    },
+    "floatingChangeProject": "Cambiar proyecto",
+    "@floatingChangeProject": {
+        "description": "Botón cambiar proyecto"
+    },
+    "floatingViewAllProjects": "Ver todos los proyectos",
+    "@floatingViewAllProjects": {
+        "description": "Botón ver todos"
+    },
+    "floatingCreateProject": "Crear nuevo proyecto",
+    "@floatingCreateProject": {
+        "description": "Botón crear proyecto"
+    },
+    "floatingCapture": "Capturar",
+    "@floatingCapture": {
+        "description": "Botón capturar"
+    },
+    "floatingClipMode": "Modo Clip",
+    "@floatingClipMode": {
+        "description": "Botón modo clip"
+    },
+    "floatingClipModeActive": "Modo Clip activo",
+    "@floatingClipModeActive": {
+        "description": "Texto modo clip activo"
+    },
+    "floatingOpenViewer": "Abrir Visor",
+    "@floatingOpenViewer": {
+        "description": "Botón abrir visor"
+    },
+    "floatingOpenProjectFolder": "Abrir carpeta del proyecto actual",
+    "@floatingOpenProjectFolder": {
+        "description": "Botón abrir carpeta"
+    },
+    "floatingPostCapture": "Comportamiento post-captura",
+    "@floatingPostCapture": {
+        "description": "Dropdown post-captura"
+    },
+    "floatingUseConfig": "Usar configuración",
+    "@floatingUseConfig": {
+        "description": "Opción usar config"
+    },
+    "viewerTitle": "Editor de Captura",
+    "@viewerTitle": {
+        "description": "Título del visor"
+    },
+    "viewerAddImage": "Agregar imagen al frame",
+    "@viewerAddImage": {
+        "description": "Botón agregar imagen"
+    },
+    "viewerSaved": "Guardado",
+    "@viewerSaved": {
+        "description": "Indicador de guardado"
+    },
+    "viewerSelect": "Seleccionar",
+    "@viewerSelect": {
+        "description": "Herramienta seleccionar"
+    },
+    "viewerArrow": "Flecha",
+    "@viewerArrow": {
+        "description": "Herramienta flecha"
+    },
+    "viewerRectangle": "Rectángulo",
+    "@viewerRectangle": {
+        "description": "Herramienta rectángulo"
+    },
+    "viewerCircle": "Círculo",
+    "@viewerCircle": {
+        "description": "Herramienta círculo"
+    },
+    "viewerHighlighter": "Resaltador",
+    "@viewerHighlighter": {
+        "description": "Herramienta resaltador"
+    },
+    "viewerPencil": "Lápiz",
+    "@viewerPencil": {
+        "description": "Herramienta lápiz"
+    },
+    "viewerText": "Texto",
+    "@viewerText": {
+        "description": "Herramienta texto"
+    },
+    "viewerComment": "Burbuja de comentario",
+    "@viewerComment": {
+        "description": "Herramienta burbuja"
+    },
+    "viewerStepNumber": "Numerador de pasos",
+    "@viewerStepNumber": {
+        "description": "Herramienta numerador"
+    },
+    "viewerBlur": "Blur",
+    "@viewerBlur": {
+        "description": "Herramienta blur"
+    },
+    "viewerEraser": "Borrador",
+    "@viewerEraser": {
+        "description": "Herramienta borrador"
+    },
+    "viewerUndo": "Deshacer",
+    "@viewerUndo": {
+        "description": "Herramienta deshacer"
+    },
+    "viewerRedo": "Rehacer",
+    "@viewerRedo": {
+        "description": "Herramienta rehacer"
+    },
+    "viewerColor": "Color",
+    "@viewerColor": {
+        "description": "Propiedad color"
+    },
+    "viewerThickness": "Grosor",
+    "@viewerThickness": {
+        "description": "Propiedad grosor"
+    },
+    "viewerSize": "Tamaño",
+    "@viewerSize": {
+        "description": "Propiedad tamaño"
+    },
+    "firstUseMessage": "Configura la carpeta raíz para comenzar a usar QAVision.",
+    "@firstUseMessage": {
+        "description": "Mensaje de primer uso"
+    },
+    "firstUseCancelWarning": "Debes configurar una carpeta raíz para continuar.",
+    "@firstUseCancelWarning": {
+        "description": "Advertencia al cancelar primer uso"
+    }
+}

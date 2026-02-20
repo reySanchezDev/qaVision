@@ -1,0 +1,4 @@
+INFO|LINT|DIRECTIVES_ORDERING|C:\\Users\\Devre\\Documents\\QAVision\\lib\\features\\floating_button\\presentation\\pages\\floating_button_page.dart|8|1|58|Sort directive sections alphabetically.
+INFO|LINT|DIRECTIVES_ORDERING|C:\\Users\\Devre\\Documents\\QAVision\\lib\\features\\floating_button\\presentation\\pages\\floating_button_page.dart|9|1|20|Place 'dart:' imports before other imports.
+INFO|LINT|DISCARDED_FUTURES|C:\\Users\\Devre\\Documents\\QAVision\\lib\\features\\projects\\presentation\\widgets\\project_list_item.dart|99|35|3|'Future'-returning calls in a non-'async' function.
+INFO|LINT|LINES_LONGER_THAN_80_CHARS|C:\\Users\\Devre\\Documents\\QAVision\\lib\\features\\projects\\presentation\\widgets\\project_list_item.dart|100|81|2|The line length exceeds the 80-character limit.
