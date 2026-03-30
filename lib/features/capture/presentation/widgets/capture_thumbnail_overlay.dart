@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:qavision/core/navigation/app_router.dart';
-import 'package:qavision/core/navigation/app_routes.dart';
 import 'package:qavision/features/capture/presentation/bloc/capture_bloc.dart';
 import 'package:qavision/features/capture/presentation/bloc/capture_event.dart';
 import 'package:qavision/features/capture/presentation/bloc/capture_state.dart';
@@ -11,6 +10,7 @@ import 'package:qavision/features/capture/presentation/bloc/capture_state.dart';
 /// Overlay que muestra una miniatura de la captura reciente (§4.0, §9.1).
 ///
 /// Implementa animaciones de entrada y salida automáticas.
+/// Debe ser hijo directo de un [Stack] en la pantalla raíz.
 class CaptureThumbnailOverlay extends StatefulWidget {
   /// Crea una instancia de [CaptureThumbnailOverlay].
   const CaptureThumbnailOverlay({super.key});
@@ -50,7 +50,7 @@ class _CaptureThumbnailOverlayState extends State<CaptureThumbnailOverlay>
 
   void _startAutoClose() {
     _autoCloseTimer?.cancel();
-    _autoCloseTimer = Timer(const Duration(seconds: 5), () {
+    _autoCloseTimer = Timer(const Duration(seconds: 3), () {
       if (mounted) _close();
     });
   }
@@ -69,55 +69,49 @@ class _CaptureThumbnailOverlayState extends State<CaptureThumbnailOverlay>
   @override
   Widget build(BuildContext context) {
     return BlocListener<CaptureBloc, CaptureState>(
+      listenWhen: (previous, current) =>
+          current is CaptureSuccessThumbnail || current is CaptureIdle,
       listener: (context, state) {
-        if (state is CaptureSuccess) {
+        if (state is CaptureSuccessThumbnail) {
           setState(() => _currentCapture = state);
           unawaited(_controller.forward());
           _startAutoClose();
         } else if (state is CaptureIdle) {
-          if (_controller.status == AnimationStatus.completed) {
-            unawaited(
-              _controller.reverse().then((_) {
-                if (mounted) setState(() => _currentCapture = null);
-              }),
-            );
-          } else {
-            setState(() => _currentCapture = null);
-          }
+          setState(() => _currentCapture = null);
+          _controller.reset();
         }
       },
       child: _currentCapture == null
           ? const SizedBox.shrink()
-          : AnimatedBuilder(
-              animation: _animation,
-              builder: (context, child) {
-                return Positioned(
-                  bottom: 100,
-                  right: 20,
-                  child: Transform.scale(
+          : Positioned(
+              bottom: 100,
+              right: 20,
+              child: AnimatedBuilder(
+                animation: _animation,
+                builder: (context, child) {
+                  return Transform.scale(
                     scale: _animation.value,
                     child: Opacity(
                       opacity: _animation.value.clamp(0.0, 1.0),
                       child: child,
                     ),
-                  ),
-                );
-              },
-              child: _ThumbnailCard(
-                path: _currentCapture!.capture.path,
-                onOpen: () {
-                  _autoCloseTimer?.cancel();
-                  context.read<CaptureBloc>().add(
-                    const CaptureResetRequested(),
-                  );
-                  unawaited(
-                    AppRouter.navigatorKey.currentState?.pushNamed(
-                      AppRoutes.viewer,
-                      arguments: _currentCapture!.capture.path,
-                    ),
                   );
                 },
-                onClose: _close,
+                child: _ThumbnailCard(
+                  path: _currentCapture!.capture.path,
+                  onOpen: () {
+                    _autoCloseTimer?.cancel();
+                    context.read<CaptureBloc>().add(
+                      const CaptureResetRequested(),
+                    );
+                    unawaited(
+                      AppRouter.openViewer(
+                        imagePath: _currentCapture!.capture.path,
+                      ),
+                    );
+                  },
+                  onClose: _close,
+                ),
               ),
             ),
     );

@@ -2,204 +2,443 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
 
-/// Eventos del BLoC del Visor / Editor.
+/// Base viewer event.
 sealed class ViewerEvent extends Equatable {
-  /// Crea una instancia de [ViewerEvent].
+  /// Creates [ViewerEvent].
   const ViewerEvent();
 
   @override
   List<Object?> get props => [];
 }
 
-/// Inicia el visor con una ruta de imagen base.
+/// Initializes viewer with an image.
 final class ViewerStarted extends ViewerEvent {
-  /// Crea una instancia de [ViewerStarted].
-  const ViewerStarted({required this.imagePath});
+  /// Creates [ViewerStarted].
+  const ViewerStarted({
+    required this.imagePath,
+    this.defaultFrameBackgroundColor,
+    this.defaultFrameBackgroundOpacity,
+    this.defaultFrameBorderColor,
+    this.defaultFrameBorderWidth,
+    this.defaultFramePadding,
+  });
 
-  /// Ruta del archivo de imagen a cargar.
+  /// Base image path.
   final String imagePath;
 
+  /// Default frame background color for newly created base frame.
+  final int? defaultFrameBackgroundColor;
+
+  /// Default frame background opacity.
+  final double? defaultFrameBackgroundOpacity;
+
+  /// Default frame border color.
+  final int? defaultFrameBorderColor;
+
+  /// Default frame border width.
+  final double? defaultFrameBorderWidth;
+
+  /// Default frame inner padding.
+  final double? defaultFramePadding;
+
   @override
-  List<Object?> get props => [imagePath];
+  List<Object?> get props => [
+    imagePath,
+    defaultFrameBackgroundColor,
+    defaultFrameBackgroundOpacity,
+    defaultFrameBorderColor,
+    defaultFrameBorderWidth,
+    defaultFramePadding,
+  ];
 }
 
-/// Cambia la herramienta de anotación activa.
+/// Changes active tool.
 final class ViewerToolChanged extends ViewerEvent {
-  /// Crea una instancia de [ViewerToolChanged].
+  /// Creates [ViewerToolChanged].
   const ViewerToolChanged(this.tool);
 
-  /// Nuevo tipo de herramienta (§9.4).
+  /// New active tool.
   final AnnotationType tool;
 
   @override
   List<Object?> get props => [tool];
 }
 
-/// Cambia las propiedades globales de dibujo.
+/// Changes tool properties.
 final class ViewerPropertiesChanged extends ViewerEvent {
-  /// Crea una instancia de [ViewerPropertiesChanged].
-  const ViewerPropertiesChanged({this.color, this.strokeWidth});
+  /// Creates [ViewerPropertiesChanged].
+  const ViewerPropertiesChanged({
+    this.color,
+    this.strokeWidth,
+    this.textSize,
+    this.opacity,
+  });
 
-  /// Nuevo color en formato ARB.
+  /// Active color.
   final int? color;
 
-  /// Nuevo grosor de línea.
+  /// Active stroke width.
   final double? strokeWidth;
 
+  /// Active text size.
+  final double? textSize;
+
+  /// Active opacity.
+  final double? opacity;
+
   @override
-  List<Object?> get props => [color, strokeWidth];
+  List<Object?> get props => [color, strokeWidth, textSize, opacity];
 }
 
-/// Cambia el color de fondo del lienzo (§9.0).
+/// Changes canvas background color.
 final class ViewerBackgroundColorChanged extends ViewerEvent {
-  /// Crea una instancia de [ViewerBackgroundColorChanged].
+  /// Creates [ViewerBackgroundColorChanged].
   const ViewerBackgroundColorChanged(this.color);
 
-  /// Nuevo color de fondo en formato ARB.
+  /// New ARGB color.
   final int color;
 
   @override
   List<Object?> get props => [color];
 }
 
-/// Inicia una nueva anotación en una posición dada.
+/// Resizes the frame canvas.
+final class ViewerCanvasResized extends ViewerEvent {
+  /// Creates [ViewerCanvasResized].
+  const ViewerCanvasResized(this.size);
+
+  /// New frame size.
+  final Size size;
+
+  @override
+  List<Object?> get props => [size];
+}
+
+/// Starts drawing annotation.
 final class ViewerAnnotationStarted extends ViewerEvent {
-  /// Crea una instancia de [ViewerAnnotationStarted].
+  /// Creates [ViewerAnnotationStarted].
   const ViewerAnnotationStarted(this.position);
 
-  /// Posición donde se inicia el trazo.
+  /// Pointer position.
   final Offset position;
 
   @override
   List<Object?> get props => [position];
 }
 
-/// Actualiza la anotación actual con un nuevo punto o posición final.
+/// Updates drawing annotation.
 final class ViewerAnnotationUpdated extends ViewerEvent {
-  /// Crea una instancia de [ViewerAnnotationUpdated].
+  /// Creates [ViewerAnnotationUpdated].
   const ViewerAnnotationUpdated(this.position);
 
-  /// Nueva posición del cursor/puntero.
+  /// Pointer position.
   final Offset position;
 
   @override
   List<Object?> get props => [position];
 }
 
-/// Finaliza la anotación actual y la persiste en el historial.
+/// Ends drawing annotation.
 final class ViewerAnnotationFinished extends ViewerEvent {
-  /// Crea una instancia de [ViewerAnnotationFinished].
+  /// Creates [ViewerAnnotationFinished].
   const ViewerAnnotationFinished();
 }
 
-/// Solicita deshacer la última acción (§9.4).
+/// Adds text/bubble content at a position.
+final class ViewerTextAdded extends ViewerEvent {
+  /// Creates [ViewerTextAdded].
+  const ViewerTextAdded({
+    required this.position,
+    required this.text,
+  });
+
+  /// Placement position.
+  final Offset position;
+
+  /// Text to insert.
+  final String text;
+
+  @override
+  List<Object?> get props => [position, text];
+}
+
+/// Undo action.
 final class ViewerUndoRequested extends ViewerEvent {
-  /// Crea una instancia de [ViewerUndoRequested].
+  /// Creates [ViewerUndoRequested].
   const ViewerUndoRequested();
 }
 
-/// Solicita rehacer la última acción deshecha (§9.4).
+/// Redo action.
 final class ViewerRedoRequested extends ViewerEvent {
-  /// Crea una instancia de [ViewerRedoRequested].
+  /// Creates [ViewerRedoRequested].
   const ViewerRedoRequested();
 }
 
-/// Solicita el exportado / guardado de la composición actual (§9.7).
+/// Exports composition.
 final class ViewerExportRequested extends ViewerEvent {
-  /// Crea una instancia de [ViewerExportRequested].
+  /// Creates [ViewerExportRequested].
   const ViewerExportRequested();
 }
 
-/// Solicita copiar la composición actual al portapapeles (§9.7).
+/// Copies composition to clipboard.
 final class ViewerCopyRequested extends ViewerEvent {
-  /// Crea una instancia de [ViewerCopyRequested].
+  /// Creates [ViewerCopyRequested].
   const ViewerCopyRequested();
 }
 
-/// Solicita compartir la composición actual (§9.7).
+/// Shares composition.
 final class ViewerShareRequested extends ViewerEvent {
-  /// Crea una instancia de [ViewerShareRequested].
+  /// Creates [ViewerShareRequested].
   const ViewerShareRequested();
 }
 
-/// Solicita la lista de capturas recientes para el proyecto (§12.1).
+/// Loads recent captures from a project directory.
 final class ViewerRecentCapturesRequested extends ViewerEvent {
-  /// Crea una instancia de [ViewerRecentCapturesRequested].
+  /// Creates [ViewerRecentCapturesRequested].
   const ViewerRecentCapturesRequested({required this.projectPath});
 
-  /// Ruta del directorio del proyecto.
+  /// Project folder path.
   final String projectPath;
 
   @override
   List<Object?> get props => [projectPath];
 }
 
-/// Añade una imagen externa al lienzo (§9.3, §7.0).
-final class ViewerImageAdded extends ViewerEvent {
-  /// Crea una instancia de [ViewerImageAdded].
-  const ViewerImageAdded({required this.imagePath, required this.projectPath});
+/// Reorders thumbnails inside the recent strip.
+final class ViewerRecentCapturesReordered extends ViewerEvent {
+  /// Creates [ViewerRecentCapturesReordered].
+  const ViewerRecentCapturesReordered({
+    required this.oldIndex,
+    required this.newIndex,
+  });
 
-  /// Ruta de la imagen a añadir.
+  /// Previous item index.
+  final int oldIndex;
+
+  /// New item index.
+  final int newIndex;
+
+  @override
+  List<Object?> get props => [oldIndex, newIndex];
+}
+
+/// Adds an image to frame.
+final class ViewerImageAdded extends ViewerEvent {
+  /// Creates [ViewerImageAdded].
+  const ViewerImageAdded({
+    required this.imagePath,
+    required this.projectPath,
+    this.position,
+    this.defaultFrameBackgroundColor,
+    this.defaultFrameBackgroundOpacity,
+    this.defaultFrameBorderColor,
+    this.defaultFrameBorderWidth,
+    this.defaultFramePadding,
+  });
+
+  /// Image file path.
   final String imagePath;
 
-  /// Ruta del directorio del proyecto.
+  /// Project folder path.
   final String projectPath;
 
+  /// Optional initial position.
+  final Offset? position;
+
+  /// Default frame background color.
+  final int? defaultFrameBackgroundColor;
+
+  /// Default frame background opacity.
+  final double? defaultFrameBackgroundOpacity;
+
+  /// Default frame border color.
+  final int? defaultFrameBorderColor;
+
+  /// Default frame border width.
+  final double? defaultFrameBorderWidth;
+
+  /// Default frame inner padding.
+  final double? defaultFramePadding;
+
   @override
-  List<Object?> get props => [imagePath, projectPath];
+  List<Object?> get props => [
+    imagePath,
+    projectPath,
+    position,
+    defaultFrameBackgroundColor,
+    defaultFrameBackgroundOpacity,
+    defaultFrameBorderColor,
+    defaultFrameBorderWidth,
+    defaultFramePadding,
+  ];
 }
 
-/// Selecciona un elemento del lienzo para edición o movimiento (§7.0).
-final class ViewerElementSelected extends ViewerEvent {
-  /// Crea una instancia de [ViewerElementSelected].
-  const ViewerElementSelected({this.elementId});
+/// Updates style properties of selected image frame.
+final class ViewerSelectedFrameStyleChanged extends ViewerEvent {
+  /// Creates [ViewerSelectedFrameStyleChanged].
+  const ViewerSelectedFrameStyleChanged({
+    this.frameBackgroundColor,
+    this.frameBackgroundOpacity,
+    this.frameBorderColor,
+    this.frameBorderWidth,
+    this.framePadding,
+  });
 
-  /// ID del elemento seleccionado. Null para deseleccionar.
+  /// New frame background color.
+  final int? frameBackgroundColor;
+
+  /// New frame background opacity.
+  final double? frameBackgroundOpacity;
+
+  /// New frame border color.
+  final int? frameBorderColor;
+
+  /// New frame border width.
+  final double? frameBorderWidth;
+
+  /// New frame inner padding.
+  final double? framePadding;
+
+  @override
+  List<Object?> get props => [
+    frameBackgroundColor,
+    frameBackgroundOpacity,
+    frameBorderColor,
+    frameBorderWidth,
+    framePadding,
+  ];
+}
+
+/// Selects a canvas element.
+final class ViewerElementSelected extends ViewerEvent {
+  /// Creates [ViewerElementSelected].
+  const ViewerElementSelected({
+    this.elementId,
+    this.centerImage = true,
+  });
+
+  /// Element id or null to clear.
   final String? elementId;
 
+  /// True to center selected image inside viewer frame.
+  final bool centerImage;
+
   @override
-  List<Object?> get props => [elementId];
+  List<Object?> get props => [elementId, centerImage];
 }
 
-/// Mueve un elemento del lienzo a una nueva posición (§7.0).
+/// Moves a canvas element.
 final class ViewerElementMoved extends ViewerEvent {
-  /// Crea una instancia de [ViewerElementMoved].
-  const ViewerElementMoved({required this.elementId, required this.position});
+  /// Creates [ViewerElementMoved].
+  const ViewerElementMoved({
+    required this.elementId,
+    required this.position,
+  });
 
-  /// ID del elemento a mover.
+  /// Target element id.
   final String elementId;
 
-  /// Nueva posición (top-left).
+  /// New top-left position.
   final Offset position;
 
   @override
   List<Object?> get props => [elementId, position];
 }
 
-/// Elimina un elemento del lienzo (§7.0).
+/// Moves image content inside an image frame (pan/encuadre).
+final class ViewerImageContentMoved extends ViewerEvent {
+  /// Creates [ViewerImageContentMoved].
+  const ViewerImageContentMoved({
+    required this.elementId,
+    required this.contentOffset,
+  });
+
+  /// Target image element id.
+  final String elementId;
+
+  /// New content top-left offset inside the image frame viewport.
+  final Offset contentOffset;
+
+  @override
+  List<Object?> get props => [elementId, contentOffset];
+}
+
+/// Resizes an element.
+final class ViewerElementResized extends ViewerEvent {
+  /// Creates [ViewerElementResized].
+  const ViewerElementResized({
+    required this.elementId,
+    required this.size,
+    this.position,
+  });
+
+  /// Target element id.
+  final String elementId;
+
+  /// New size.
+  final Size size;
+
+  /// Optional top-left position used for side/corner resize.
+  final Offset? position;
+
+  @override
+  List<Object?> get props => [elementId, size, position];
+}
+
+/// Marks the start of a drag/resize interaction.
+final class ViewerInteractionStarted extends ViewerEvent {
+  /// Creates [ViewerInteractionStarted].
+  const ViewerInteractionStarted();
+}
+
+/// Marks the end of a drag/resize interaction.
+final class ViewerInteractionFinished extends ViewerEvent {
+  /// Creates [ViewerInteractionFinished].
+  const ViewerInteractionFinished();
+}
+
+/// Internal event that persists current frame composition.
+final class ViewerAutoSaveRequested extends ViewerEvent {
+  /// Creates [ViewerAutoSaveRequested].
+  const ViewerAutoSaveRequested();
+}
+
+/// Deletes element.
 final class ViewerElementDeleted extends ViewerEvent {
-  /// Crea una instancia de [ViewerElementDeleted].
+  /// Creates [ViewerElementDeleted].
   const ViewerElementDeleted({required this.elementId});
 
-  /// ID del elemento a eliminar.
+  /// Target element id.
   final String elementId;
 
   @override
   List<Object?> get props => [elementId];
 }
 
-/// Cambia el orden de apilamiento de un elemento (§7.0).
+/// Updates text content of selected text-capable element.
+final class ViewerSelectedElementTextUpdated extends ViewerEvent {
+  /// Creates [ViewerSelectedElementTextUpdated].
+  const ViewerSelectedElementTextUpdated(this.text);
+
+  /// New text.
+  final String text;
+
+  @override
+  List<Object?> get props => [text];
+}
+
+/// Changes z-order.
 final class ViewerElementZOrderChanged extends ViewerEvent {
-  /// Crea una instancia de [ViewerElementZOrderChanged].
+  /// Creates [ViewerElementZOrderChanged].
   const ViewerElementZOrderChanged({
     required this.elementId,
     required this.isForward,
   });
 
-  /// ID del elemento.
+  /// Target element id.
   final String elementId;
 
-  /// Si es true, lo trae al frente. Si es false, lo envía al fondo.
+  /// True to bring forward, false to send backward.
   final bool isForward;
 
   @override

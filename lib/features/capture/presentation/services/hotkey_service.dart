@@ -47,7 +47,7 @@ class HotkeyService {
   void _onCaptureRegion() {
     final project = _projectBloc.state.activeProject;
     if (project != null) {
-      _captureBloc.add(CaptureRequested(project: project, captureRegion: true));
+      _captureBloc.add(CaptureRequested(project: project));
     }
   }
 }

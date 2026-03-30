@@ -1,166 +1,372 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:qavision/features/viewer/domain/entities/image_frame_component.dart';
 import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_state.dart';
-import 'package:qavision/features/viewer/presentation/utils/viewer_composition_helper.dart';
+import 'package:qavision/features/viewer/presentation/services/viewer_canvas_interaction_service.dart';
+import 'package:qavision/features/viewer/presentation/services/viewer_canvas_text_actions.dart';
+import 'package:qavision/features/viewer/presentation/widgets/viewer_canvas_painter.dart';
+import 'package:qavision/features/viewer/presentation/widgets/viewer_text_dialog.dart';
 
-/// Widget que envuelve el lienzo interactivo del visor (§9.4).
-class ViewerCanvas extends StatelessWidget {
-  /// Crea una instancia de [ViewerCanvas].
-  const ViewerCanvas({super.key});
+enum _DragMode {
+  none,
+  moveElement,
+  resizeElement,
+  draw,
+}
+
+/// Interactive composition canvas for viewer/editor.
+class ViewerCanvas extends StatefulWidget {
+  /// Creates [ViewerCanvas].
+  const ViewerCanvas({
+    this.contentZoom = 1,
+    super.key,
+  });
+
+  /// Visual zoom applied to frame content only.
+  final double contentZoom;
+
+  @override
+  State<ViewerCanvas> createState() => _ViewerCanvasState();
+}
+
+class _ViewerCanvasState extends State<ViewerCanvas> {
+  _DragMode _dragMode = _DragMode.none;
+  String? _dragElementId;
+  Offset _dragAnchor = Offset.zero;
+  Size _elementResizeStartSize = Size.zero;
+  Offset _elementResizeStartPointer = Offset.zero;
+  Rect _elementResizeStartRect = Rect.zero;
+  ViewerImageResizeHandle _imageResizeHandle = ViewerImageResizeHandle.none;
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<ViewerBloc, ViewerState>(
-      buildWhen: (previous, current) => previous.frame != current.frame,
+      buildWhen: (previous, current) =>
+          previous.frame != current.frame ||
+          previous.selectedElementId != current.selectedElementId ||
+          previous.activeTool != current.activeTool,
       builder: (context, state) {
         return GestureDetector(
-          onPanStart: (details) => _handlePanStart(context, state, details),
-          onPanUpdate: (details) => _handlePanUpdate(context, state, details),
-          onPanEnd: (details) => _handlePanEnd(context, state, details),
-          child: CustomPaint(
-            painter: ViewerPainter(
-              frame: state.frame,
-              selectedElementId: state.selectedElementId,
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (details) {
+            unawaited(_onTapDown(context, details));
+          },
+          onDoubleTapDown: (details) {
+            unawaited(
+              ViewerCanvasTextActions.handleDoubleTapDown(
+                context: context,
+                state: context.read<ViewerBloc>().state,
+                details: details,
+                contentZoom: widget.contentZoom,
+              ),
+            );
+          },
+          onPanStart: (details) => _onPanStart(context, details),
+          onPanUpdate: (details) => _onPanUpdate(context, details),
+          onPanEnd: (_) => _onPanEnd(context),
+          child: SizedBox(
+            width: state.frame.canvasSize.width,
+            height: state.frame.canvasSize.height,
+            child: CustomPaint(
+              painter: ViewerCanvasPainter(
+                frame: state.frame,
+                selectedElementId: state.selectedElementId,
+                contentZoom: widget.contentZoom,
+              ),
             ),
-            size: Size.infinite,
           ),
         );
       },
     );
   }
 
-  void _handlePanStart(
+  Future<void> _onTapDown(
     BuildContext context,
-    ViewerState state,
-    DragStartDetails details,
-  ) {
-    final position = details.localPosition;
+    TapDownDetails details,
+  ) async {
+    final bloc = context.read<ViewerBloc>();
+    final state = bloc.state;
+    final point = ViewerCanvasInteractionService.toLogicalPoint(
+      point: details.localPosition,
+      frameSize: state.frame.canvasSize,
+      zoom: widget.contentZoom,
+    );
 
     if (state.activeTool == AnnotationType.selection) {
-      // Find the top-most element at this position
-      final hitElement = _hitTest(state.frame, position);
-      context.read<ViewerBloc>().add(
-        ViewerElementSelected(elementId: hitElement?.id),
+      final hit = ViewerCanvasInteractionService.hitTest(
+        state.frame,
+        point,
+        zoom: widget.contentZoom,
       );
-    } else {
-      context.read<ViewerBloc>().add(
-        ViewerAnnotationStarted(position),
+      bloc.add(
+        ViewerElementSelected(
+          elementId: hit?.id,
+          centerImage: false,
+        ),
       );
+      return;
+    }
+
+    if (state.activeTool == AnnotationType.eraser) {
+      final hit = ViewerCanvasInteractionService.hitTest(
+        state.frame,
+        point,
+        zoom: widget.contentZoom,
+      );
+      if (hit != null) {
+        bloc.add(ViewerElementDeleted(elementId: hit.id));
+      }
+      return;
+    }
+
+    if (state.activeTool == AnnotationType.text ||
+        state.activeTool == AnnotationType.commentBubble) {
+      final text = await ViewerTextDialog.prompt(context);
+      if (!context.mounted || text == null || text.trim().isEmpty) return;
+      bloc.add(ViewerTextAdded(position: point, text: text.trim()));
+      return;
+    }
+
+    if (state.activeTool == AnnotationType.stepMarker) {
+      bloc.add(ViewerAnnotationStarted(point));
     }
   }
 
-  void _handlePanUpdate(
+  void _onPanStart(
     BuildContext context,
-    ViewerState state,
-    DragUpdateDetails details,
+    DragStartDetails details,
   ) {
-    final position = details.localPosition;
+    final bloc = context.read<ViewerBloc>();
+    final state = bloc.state;
+    final point = ViewerCanvasInteractionService.toLogicalPoint(
+      point: details.localPosition,
+      frameSize: state.frame.canvasSize,
+      zoom: widget.contentZoom,
+    );
 
     if (state.activeTool == AnnotationType.selection) {
-      if (state.selectedElementId != null) {
-        // Simple drag of selected element
-        context.read<ViewerBloc>().add(
+      final selected = ViewerCanvasInteractionService.selectedElement(state);
+      final selectedImage = selected is ImageFrameComponent ? selected : null;
+
+      // Prioriza siempre la imagen seleccionada para evitar intermitencia
+      // cuando existen elementos superpuestos.
+      if (selectedImage != null) {
+        final selectedImageHandle =
+            ViewerCanvasInteractionService.hitTestFrameResizeHandles(
+              logicalPoint: point,
+              element: selectedImage,
+            );
+        if (selectedImageHandle != null &&
+            selectedImageHandle != ViewerImageResizeHandle.none) {
+          _dragMode = _DragMode.resizeElement;
+          _dragElementId = selectedImage.id;
+          _imageResizeHandle = selectedImageHandle;
+          _elementResizeStartPointer = point;
+          _elementResizeStartSize = selectedImage.size;
+          _elementResizeStartRect = selectedImage.position & selectedImage.size;
+          bloc.add(const ViewerInteractionStarted());
+          return;
+        }
+        if (ViewerCanvasInteractionService.isInsideImageFrame(
+          selectedImage,
+          point,
+        )) {
+          _dragMode = _DragMode.moveElement;
+          _dragElementId = selectedImage.id;
+          _imageResizeHandle = ViewerImageResizeHandle.none;
+          _dragAnchor = point - selectedImage.position;
+          bloc.add(const ViewerInteractionStarted());
+          return;
+        }
+      }
+
+      final topImageResizeHit =
+          ViewerCanvasInteractionService.hitTopImageResizeHandle(
+            state.frame,
+            point,
+          );
+      if (topImageResizeHit != null) {
+        bloc.add(
+          ViewerElementSelected(
+            elementId: topImageResizeHit.element.id,
+            centerImage: false,
+          ),
+        );
+        _dragMode = _DragMode.resizeElement;
+        _dragElementId = topImageResizeHit.element.id;
+        _imageResizeHandle = topImageResizeHit.handle;
+        _elementResizeStartPointer = point;
+        _elementResizeStartSize = topImageResizeHit.element.size;
+        _elementResizeStartRect =
+            topImageResizeHit.element.position & topImageResizeHit.element.size;
+        bloc.add(const ViewerInteractionStarted());
+        return;
+      }
+
+      final topImage = ViewerCanvasInteractionService.hitTopImageFrame(
+        state.frame,
+        point,
+      );
+      if (topImage != null) {
+        bloc.add(
+          ViewerElementSelected(
+            elementId: topImage.id,
+            centerImage: false,
+          ),
+        );
+        _dragMode = _DragMode.moveElement;
+        _dragElementId = topImage.id;
+        _imageResizeHandle = ViewerImageResizeHandle.none;
+        _dragAnchor = point - topImage.position;
+        bloc.add(const ViewerInteractionStarted());
+        return;
+      }
+
+      final hit = ViewerCanvasInteractionService.hitTest(
+        state.frame,
+        point,
+        zoom: widget.contentZoom,
+      );
+      bloc.add(
+        ViewerElementSelected(
+          elementId: hit?.id,
+          centerImage: false,
+        ),
+      );
+      if (hit == null) return;
+
+      if (hit is ImageFrameComponent) {
+        final handle = ViewerCanvasInteractionService.hitTestFrameResizeHandles(
+          logicalPoint: point,
+          element: hit,
+        );
+        if (handle != null && handle != ViewerImageResizeHandle.none) {
+          _dragMode = _DragMode.resizeElement;
+          _dragElementId = hit.id;
+          _imageResizeHandle = handle;
+          _elementResizeStartPointer = point;
+          _elementResizeStartSize = hit.size;
+          _elementResizeStartRect = hit.position & hit.size;
+          bloc.add(const ViewerInteractionStarted());
+          return;
+        }
+
+        _dragMode = _DragMode.moveElement;
+        _dragElementId = hit.id;
+        _imageResizeHandle = ViewerImageResizeHandle.none;
+        _dragAnchor = point - hit.position;
+        bloc.add(const ViewerInteractionStarted());
+        return;
+      }
+
+      if (ViewerCanvasInteractionService.isOnResizeHandle(hit, point)) {
+        _dragMode = _DragMode.resizeElement;
+        _dragElementId = hit.id;
+        _elementResizeStartPointer = point;
+        _elementResizeStartSize =
+            ViewerCanvasInteractionService.selectionBounds(hit).size;
+        _imageResizeHandle = ViewerImageResizeHandle.none;
+        bloc.add(const ViewerInteractionStarted());
+        return;
+      }
+
+      _dragMode = _DragMode.moveElement;
+      _dragElementId = hit.id;
+      _imageResizeHandle = ViewerImageResizeHandle.none;
+      _dragAnchor = point - hit.position;
+      bloc.add(const ViewerInteractionStarted());
+      return;
+    }
+
+    if (state.activeTool == AnnotationType.text ||
+        state.activeTool == AnnotationType.commentBubble ||
+        state.activeTool == AnnotationType.eraser ||
+        state.activeTool == AnnotationType.stepMarker) {
+      return;
+    }
+
+    _dragMode = _DragMode.draw;
+    bloc.add(ViewerAnnotationStarted(point));
+  }
+
+  void _onPanUpdate(
+    BuildContext context,
+    DragUpdateDetails details,
+  ) {
+    final bloc = context.read<ViewerBloc>();
+    final state = bloc.state;
+    final point = ViewerCanvasInteractionService.toLogicalPoint(
+      point: details.localPosition,
+      frameSize: state.frame.canvasSize,
+      zoom: widget.contentZoom,
+    );
+
+    if (_dragMode == _DragMode.moveElement) {
+      final id = _dragElementId;
+      if (id != null) {
+        bloc.add(
           ViewerElementMoved(
-            elementId: state.selectedElementId!,
-            position: position,
+            elementId: id,
+            position: point - _dragAnchor,
           ),
         );
       }
-    } else if (state.isDrawing) {
-      context.read<ViewerBloc>().add(
-        ViewerAnnotationUpdated(position),
-      );
+      return;
     }
-  }
 
-  void _handlePanEnd(
-    BuildContext context,
-    ViewerState state,
-    DragEndDetails details,
-  ) {
-    if (state.isDrawing) {
-      context.read<ViewerBloc>().add(const ViewerAnnotationFinished());
-    }
-  }
+    if (_dragMode == _DragMode.resizeElement) {
+      final id = _dragElementId;
+      if (id != null) {
+        final delta = point - _elementResizeStartPointer;
+        if (_imageResizeHandle != ViewerImageResizeHandle.none) {
+          final resizedRect = ViewerCanvasInteractionService.computeResizedRect(
+            startRect: _elementResizeStartRect,
+            delta: delta,
+            handle: _imageResizeHandle,
+            frameSize: state.frame.canvasSize,
+          );
+          bloc.add(
+            ViewerElementResized(
+              elementId: id,
+              size: resizedRect.size,
+              position: resizedRect.topLeft,
+            ),
+          );
+          return;
+        }
 
-  CanvasElement? _hitTest(FrameState frame, Offset position) {
-    // Search elements in reverse z-order to find the one on top
-    final sortedElements = List<CanvasElement>.from(frame.elements)
-      ..sort((a, b) => b.zIndex.compareTo(a.zIndex));
-
-    for (final element in sortedElements) {
-      if (element is ImageElement) {
-        final rect = element.position & element.size;
-        if (rect.contains(position)) return element;
-      } else if (element is AnnotationElement) {
-        // Basic rectangular hit test for annotations for now
-        final rect = element.position & const Size(40, 40);
-        if (rect.contains(position)) return element;
+        final newSize = ViewerCanvasInteractionService.computeGenericResizeSize(
+          startSize: _elementResizeStartSize,
+          delta: delta,
+        );
+        bloc.add(ViewerElementResized(elementId: id, size: newSize));
       }
+      return;
     }
-    return null;
-  }
-}
 
-/// Painter encargado de renderizar imágenes y anotaciones en el lienzo (§9.4).
-class ViewerPainter extends CustomPainter {
-  /// Crea una instancia de [ViewerPainter].
-  ViewerPainter({required this.frame, this.selectedElementId});
-
-  /// Estado del lienzo a dibujar.
-  final FrameState frame;
-
-  /// ID del elemento seleccionado para resaltar.
-  final String? selectedElementId;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    ViewerCompositionHelper.paintFrame(canvas, frame);
-
-    // Dibuja borde de selección si hay un elemento activo
-    if (selectedElementId != null) {
-      final element = frame.elements.indexWhere(
-        (e) => e.id == selectedElementId,
-      );
-      if (element != -1) {
-        _drawSelectionIndicator(canvas, frame.elements[element]);
-      }
+    if (_dragMode == _DragMode.draw && state.isDrawing) {
+      bloc.add(ViewerAnnotationUpdated(point));
     }
   }
 
-  void _drawSelectionIndicator(Canvas canvas, CanvasElement element) {
-    final paint = Paint()
-      ..color = Colors.blue
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0;
-
-    Rect? rect;
-    if (element is ImageElement) {
-      rect = element.position & element.size;
-    } else if (element is AnnotationElement) {
-      rect = Rect.fromCenter(
-        center: element.position,
-        width: 40,
-        height: 40,
-      );
+  void _onPanEnd(BuildContext context) {
+    final bloc = context.read<ViewerBloc>();
+    final state = bloc.state;
+    if (_dragMode == _DragMode.draw && state.isDrawing) {
+      bloc.add(const ViewerAnnotationFinished());
+    } else if (_dragMode == _DragMode.moveElement ||
+        _dragMode == _DragMode.resizeElement) {
+      bloc.add(const ViewerInteractionFinished());
     }
 
-    if (rect != null) {
-      canvas
-        ..drawRect(rect.inflate(4), paint)
-        ..drawCircle(rect.topLeft, 4, paint..style = PaintingStyle.fill)
-        ..drawCircle(rect.topRight, 4, paint)
-        ..drawCircle(rect.bottomLeft, 4, paint)
-        ..drawCircle(rect.bottomRight, 4, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant ViewerPainter oldDelegate) {
-    return oldDelegate.frame != frame ||
-        oldDelegate.selectedElementId != selectedElementId;
+    _dragMode = _DragMode.none;
+    _dragElementId = null;
+    _imageResizeHandle = ViewerImageResizeHandle.none;
+    _elementResizeStartRect = Rect.zero;
   }
 }

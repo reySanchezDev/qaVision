@@ -8,11 +8,17 @@ enum TextVariant {
   /// Título mediano (e.g., encabezados de secciones).
   titleMedium,
 
+  /// Título pequeño (e.g., encabezados de panels).
+  titleSmall,
+
   /// Cuerpo de texto normal.
   bodyLarge,
 
-  /// Cuerpo de texto pequeño o secundario.
+  /// Cuerpo de texto mediano.
   bodyMedium,
+
+  /// Cuerpo de texto pequeño.
+  bodySmall,
 
   /// Etiquetas o pies de foto.
   labelSmall,
@@ -32,6 +38,7 @@ class AppText extends StatelessWidget {
     this.textAlign,
     this.maxLines,
     this.overflow,
+    this.fontWeight,
   });
 
   /// El contenido del texto a mostrar.
@@ -52,6 +59,9 @@ class AppText extends StatelessWidget {
   /// Comportamiento del desbordamiento.
   final TextOverflow? overflow;
 
+  /// Peso de la fuente opcional.
+  final FontWeight? fontWeight;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -63,16 +73,23 @@ class AppText extends StatelessWidget {
         style = textTheme.titleLarge;
       case TextVariant.titleMedium:
         style = textTheme.titleMedium;
+      case TextVariant.titleSmall:
+        style = textTheme.titleSmall;
       case TextVariant.bodyLarge:
         style = textTheme.bodyLarge;
       case TextVariant.bodyMedium:
         style = textTheme.bodyMedium;
+      case TextVariant.bodySmall:
+        style = textTheme.bodySmall;
       case TextVariant.labelSmall:
         style = textTheme.labelSmall;
     }
 
-    if (color != null) {
-      style = style?.copyWith(color: color);
+    if (color != null || fontWeight != null) {
+      style = style?.copyWith(
+        color: color,
+        fontWeight: fontWeight,
+      );
     }
 
     return Text(

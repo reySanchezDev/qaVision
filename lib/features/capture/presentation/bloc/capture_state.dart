@@ -23,7 +23,7 @@ final class CaptureInProgress extends CaptureState {
 }
 
 /// Captura finalizada con éxito.
-final class CaptureSuccess extends CaptureState {
+sealed class CaptureSuccess extends CaptureState {
   /// Crea una instancia de [CaptureSuccess].
   const CaptureSuccess(this.capture);
 
@@ -32,6 +32,24 @@ final class CaptureSuccess extends CaptureState {
 
   @override
   List<Object?> get props => [capture];
+}
+
+/// Éxito de captura que abre el visor.
+final class CaptureSuccessViewer extends CaptureSuccess {
+  /// Crea una instancia de [CaptureSuccessViewer].
+  const CaptureSuccessViewer(super.capture);
+}
+
+/// Éxito de captura que muestra miniatura.
+final class CaptureSuccessThumbnail extends CaptureSuccess {
+  /// Crea una instancia de [CaptureSuccessThumbnail].
+  const CaptureSuccessThumbnail(super.capture);
+}
+
+/// Éxito de captura silencioso.
+final class CaptureSuccessSilent extends CaptureSuccess {
+  /// Crea una instancia de [CaptureSuccessSilent].
+  const CaptureSuccessSilent(super.capture);
 }
 
 /// Error en el proceso de captura.

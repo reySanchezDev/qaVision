@@ -45,6 +45,13 @@ class SettingsEntity extends Equatable {
     this.clipIntervalSeconds = 5,
     this.showRecentStrip = true,
     this.showSavedIndicator = true,
+    this.viewerDefaultFrameBackgroundColor = 0xFFFFFFFF,
+    this.viewerDefaultFrameBackgroundOpacity = 1.0,
+    this.viewerDefaultFrameBorderColor = 0x33000000,
+    this.viewerDefaultFrameBorderWidth = 1.0,
+    this.viewerDefaultFramePadding = 0.0,
+    this.lastX = 0,
+    this.lastY = 100,
   });
 
   /// Ruta de la carpeta raíz de capturas (§4.1).
@@ -100,6 +107,27 @@ class SettingsEntity extends Equatable {
   /// Si se muestra el indicador de guardado (§4.10).
   final bool showSavedIndicator;
 
+  /// Color por defecto del fondo del frame en visor.
+  final int viewerDefaultFrameBackgroundColor;
+
+  /// Opacidad por defecto del fondo del frame.
+  final double viewerDefaultFrameBackgroundOpacity;
+
+  /// Color por defecto del borde del frame.
+  final int viewerDefaultFrameBorderColor;
+
+  /// Grosor por defecto del borde del frame.
+  final double viewerDefaultFrameBorderWidth;
+
+  /// Padding interno por defecto del frame.
+  final double viewerDefaultFramePadding;
+
+  /// Última posición X del botón flotante (§H-012).
+  final double lastX;
+
+  /// Última posición Y del botón flotante (§H-012).
+  final double lastY;
+
   /// Indica si la configuración de primer uso está completa.
   bool get isConfigured => rootFolder != null && rootFolder!.isNotEmpty;
 
@@ -125,6 +153,13 @@ class SettingsEntity extends Equatable {
     int? clipIntervalSeconds,
     bool? showRecentStrip,
     bool? showSavedIndicator,
+    int? viewerDefaultFrameBackgroundColor,
+    double? viewerDefaultFrameBackgroundOpacity,
+    int? viewerDefaultFrameBorderColor,
+    double? viewerDefaultFrameBorderWidth,
+    double? viewerDefaultFramePadding,
+    double? lastX,
+    double? lastY,
   }) {
     return SettingsEntity(
       rootFolder: rootFolder ?? this.rootFolder,
@@ -144,6 +179,20 @@ class SettingsEntity extends Equatable {
       clipIntervalSeconds: clipIntervalSeconds ?? this.clipIntervalSeconds,
       showRecentStrip: showRecentStrip ?? this.showRecentStrip,
       showSavedIndicator: showSavedIndicator ?? this.showSavedIndicator,
+      viewerDefaultFrameBackgroundColor:
+          viewerDefaultFrameBackgroundColor ??
+          this.viewerDefaultFrameBackgroundColor,
+      viewerDefaultFrameBackgroundOpacity:
+          viewerDefaultFrameBackgroundOpacity ??
+          this.viewerDefaultFrameBackgroundOpacity,
+      viewerDefaultFrameBorderColor:
+          viewerDefaultFrameBorderColor ?? this.viewerDefaultFrameBorderColor,
+      viewerDefaultFrameBorderWidth:
+          viewerDefaultFrameBorderWidth ?? this.viewerDefaultFrameBorderWidth,
+      viewerDefaultFramePadding:
+          viewerDefaultFramePadding ?? this.viewerDefaultFramePadding,
+      lastX: lastX ?? this.lastX,
+      lastY: lastY ?? this.lastY,
     );
   }
 
@@ -166,5 +215,12 @@ class SettingsEntity extends Equatable {
     clipIntervalSeconds,
     showRecentStrip,
     showSavedIndicator,
+    viewerDefaultFrameBackgroundColor,
+    viewerDefaultFrameBackgroundOpacity,
+    viewerDefaultFrameBorderColor,
+    viewerDefaultFrameBorderWidth,
+    viewerDefaultFramePadding,
+    lastX,
+    lastY,
   ];
 }

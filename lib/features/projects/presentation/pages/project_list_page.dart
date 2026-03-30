@@ -1,20 +1,66 @@
+import 'dart:async';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:qavision/core/widgets/app_text.dart';
 import 'package:qavision/features/projects/presentation/bloc/project_bloc.dart';
 import 'package:qavision/features/projects/presentation/bloc/project_event.dart';
 import 'package:qavision/features/projects/presentation/bloc/project_state.dart';
-import 'package:qavision/features/projects/presentation/widgets/project_form_modal.dart';
 import 'package:qavision/features/projects/presentation/widgets/project_list_item.dart';
 import 'package:qavision/l10n/app_localizations.dart';
 
-/// Pantalla de Gestión de Proyectos (§5).
+/// Pantalla de Gestion de Proyectos (§5).
 ///
 /// Muestra la lista de proyectos y permite
 /// crear, editar y establecer predeterminados.
-class ProjectListPage extends StatelessWidget {
+class ProjectListPage extends StatefulWidget {
   /// Crea una instancia de [ProjectListPage].
-  const ProjectListPage({super.key});
+  const ProjectListPage({
+    super.key,
+    this.openCreateOnStart = false,
+    this.externalOpenCreateRequests,
+  });
+
+  /// Si true, abre automaticamente el modal de creacion al mostrar la pagina.
+  final bool openCreateOnStart;
+
+  /// Solicitudes externas para abrir modal de creacion.
+  final Stream<void>? externalOpenCreateRequests;
+
+  @override
+  State<ProjectListPage> createState() => ProjectListPageState();
+}
+
+/// Estado de [ProjectListPage].
+class ProjectListPageState extends State<ProjectListPage> {
+  bool _folderPickerOpen = false;
+  StreamSubscription<void>? _externalOpenCreateSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.openCreateOnStart) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _folderPickerOpen) return;
+        unawaited(openCreateModalExternally());
+      });
+    }
+
+    final stream = widget.externalOpenCreateRequests;
+    if (stream != null) {
+      _externalOpenCreateSubscription = stream.listen((_) {
+        if (!mounted) return;
+        unawaited(openCreateModalExternally());
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_externalOpenCreateSubscription?.cancel());
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +72,9 @@ class ProjectListPage extends StatelessWidget {
         centerTitle: true,
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showCreateModal(context),
+        onPressed: () {
+          unawaited(openCreateModalExternally());
+        },
         icon: const Icon(Icons.add),
         label: AppText(
           l10n.projectsNewProject,
@@ -86,13 +134,22 @@ class ProjectListPage extends StatelessWidget {
     );
   }
 
-  Future<void> _showCreateModal(BuildContext context) async {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => BlocProvider.value(
-        value: context.read<ProjectBloc>(),
-        child: const ProjectFormModal(),
-      ),
-    );
+  /// Permite abrir el modal de creacion desde eventos externos.
+  Future<void> openCreateModalExternally() async {
+    if (_folderPickerOpen) return;
+
+    _folderPickerOpen = true;
+    try {
+      final selectedPath = await FilePicker.platform.getDirectoryPath();
+      if (!mounted || selectedPath == null || selectedPath.trim().isEmpty) {
+        return;
+      }
+
+      context.read<ProjectBloc>().add(
+        ProjectFolderSelected(selectedPath.trim()),
+      );
+    } finally {
+      _folderPickerOpen = false;
+    }
   }
 }

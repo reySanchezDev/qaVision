@@ -1,82 +1,127 @@
 import 'package:equatable/equatable.dart';
 import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
 
-/// Estados del BLoC del Visor.
+/// Viewer/editor state.
 class ViewerState extends Equatable {
-  /// Crea un [ViewerState].
+  /// Creates [ViewerState].
   const ViewerState({
     this.frame = const FrameState(),
-    this.activeTool = AnnotationType.rectangle,
-    this.activeColor = 0xFFFF0000, // Rojo por defecto (§9.5)
-    this.activeStrokeWidth = 4.0,
+    this.activeTool = AnnotationType.selection,
+    this.activeColor = 0xFFE53935,
+    this.activeStrokeWidth = 4,
+    this.activeTextSize = 20,
+    this.activeOpacity = 0.28,
     this.undoStack = const [],
     this.redoStack = const [],
     this.isDrawing = false,
     this.isLoading = false,
+    this.isAutoSaving = false,
     this.recentCaptures = const [],
+    this.recentProjectPath,
     this.selectedElementId,
+    this.autoSavePath,
     this.errorMessage,
   });
 
-  /// Estado actual del lienzo (imágenes y anotaciones).
+  /// Current frame snapshot.
   final FrameState frame;
 
-  /// Herramienta seleccionada actualmente.
+  /// Active drawing tool.
   final AnnotationType activeTool;
 
-  /// Color activo para nuevas anotaciones.
+  /// Active color.
   final int activeColor;
 
-  /// Grosor activo para nuevas anotaciones.
+  /// Active stroke width.
   final double activeStrokeWidth;
 
-  /// Historial para deshacer (§9.4).
+  /// Active text size.
+  final double activeTextSize;
+
+  /// Active opacity for tools that support transparency.
+  final double activeOpacity;
+
+  /// Undo history.
   final List<FrameState> undoStack;
 
-  /// Historial para rehacer (§9.4).
+  /// Redo history.
   final List<FrameState> redoStack;
 
-  /// Indica si hay un trazo en curso.
+  /// True while creating an annotation by drag gesture.
   final bool isDrawing;
 
-  /// Indica si se está cargando/componiendo la imagen.
+  /// True while loading image data or doing heavy ops.
   final bool isLoading;
 
-  /// Lista de rutas de capturas recientes (§12.1).
+  /// True while autosave is writing composition to disk.
+  final bool isAutoSaving;
+
+  /// Recent capture paths.
   final List<String> recentCaptures;
 
-  /// ID del elemento seleccionado actualmente (§7.0).
+  /// Project folder currently used by the recent captures strip.
+  final String? recentProjectPath;
+
+  /// Selected element id (null means no selection).
   final String? selectedElementId;
 
-  /// Mensaje de error para mostrar al usuario.
+  /// Current autosave output path.
+  final String? autoSavePath;
+
+  /// Last user-facing error.
   final String? errorMessage;
 
-  /// Crea una copia de este estado con los campos dados cambiados.
+  /// True when any element is selected.
+  bool get hasSelection => selectedElementId != null;
+
+  /// Creates a copy with optional changes.
   ViewerState copyWith({
     FrameState? frame,
     AnnotationType? activeTool,
     int? activeColor,
     double? activeStrokeWidth,
+    double? activeTextSize,
+    double? activeOpacity,
     List<FrameState>? undoStack,
     List<FrameState>? redoStack,
     bool? isDrawing,
     bool? isLoading,
+    bool? isAutoSaving,
     List<String>? recentCaptures,
+    String? recentProjectPath,
+    bool clearRecentProjectPath = false,
     String? selectedElementId,
+    bool clearSelectedElement = false,
+    String? autoSavePath,
+    bool clearAutoSavePath = false,
     String? errorMessage,
+    bool clearErrorMessage = false,
   }) {
     return ViewerState(
       frame: frame ?? this.frame,
       activeTool: activeTool ?? this.activeTool,
       activeColor: activeColor ?? this.activeColor,
       activeStrokeWidth: activeStrokeWidth ?? this.activeStrokeWidth,
+      activeTextSize: activeTextSize ?? this.activeTextSize,
+      activeOpacity: activeOpacity ?? this.activeOpacity,
       undoStack: undoStack ?? this.undoStack,
       redoStack: redoStack ?? this.redoStack,
       isDrawing: isDrawing ?? this.isDrawing,
       isLoading: isLoading ?? this.isLoading,
+      isAutoSaving: isAutoSaving ?? this.isAutoSaving,
       recentCaptures: recentCaptures ?? this.recentCaptures,
-      selectedElementId: selectedElementId ?? this.selectedElementId,
-      errorMessage: errorMessage ?? this.errorMessage,
+      recentProjectPath: clearRecentProjectPath
+          ? null
+          : (recentProjectPath ?? this.recentProjectPath),
+      selectedElementId: clearSelectedElement
+          ? null
+          : (selectedElementId ?? this.selectedElementId),
+      autoSavePath: clearAutoSavePath
+          ? null
+          : (autoSavePath ?? this.autoSavePath),
+      errorMessage: clearErrorMessage
+          ? null
+          : (errorMessage ?? this.errorMessage),
     );
   }
 
@@ -86,12 +131,17 @@ class ViewerState extends Equatable {
     activeTool,
     activeColor,
     activeStrokeWidth,
+    activeTextSize,
+    activeOpacity,
     undoStack,
     redoStack,
     isDrawing,
     isLoading,
+    isAutoSaving,
     recentCaptures,
+    recentProjectPath,
     selectedElementId,
+    autoSavePath,
     errorMessage,
   ];
 }

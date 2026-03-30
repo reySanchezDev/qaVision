@@ -1,100 +1,63 @@
 import 'package:flutter/material.dart';
 
-/// Entidades base para el Lienzo del Visor (§9.1).
-///
-/// Define los elementos que pueden existir en el lienzo:
-/// imágenes y anotaciones.
-
-/// Tipo de anotación disponible.
+/// Tool type available in the capture editor.
 enum AnnotationType {
-  /// Línea con punta de flecha.
+  /// Arrow line.
   arrow,
 
-  /// Rectángulo de borde.
+  /// Rectangle shape.
   rectangle,
 
-  /// Círculo de borde.
+  /// Circle shape.
   circle,
 
-  /// Trazo libre.
+  /// Transparent highlighted rectangle.
+  highlighter,
+
+  /// Freehand pencil stroke.
   pencil,
 
-  /// Texto flotante.
+  /// Plain text label.
   text,
 
-  /// Área difuminada.
+  /// Bubble callout with text.
+  commentBubble,
+
+  /// Blur/mask area.
   blur,
 
-  /// Círculo con número secuencial.
+  /// Numbered step marker.
   stepMarker,
 
-  /// Herramienta de selección y movimiento (§7.0).
+  /// Erase selected annotation.
+  eraser,
+
+  /// Select and transform elements.
   selection,
 }
 
-/// Representa un elemento genérico en el lienzo.
-sealed class CanvasElement {
-  /// Crea un [CanvasElement].
+/// Base class for any drawable element inside the frame canvas.
+abstract class CanvasElement {
+  /// Creates a [CanvasElement].
   const CanvasElement({
     required this.id,
     required this.position,
     required this.zIndex,
   });
 
-  /// Identificador único del elemento.
+  /// Unique element id.
   final String id;
 
-  /// Posición inicial (top-left) en el lienzo.
+  /// Top-left position in canvas coordinates.
   final Offset position;
 
-  /// Orden de apilamiento (capa).
+  /// Stack order.
   final int zIndex;
 }
 
-/// Representa una imagen en el lienzo (§9.4).
-class ImageElement extends CanvasElement {
-  /// Crea un [ImageElement].
-  const ImageElement({
-    required super.id,
-    required super.position,
-    required super.zIndex,
-    required this.path,
-    required this.size,
-    this.image, // Decoded image for rendering
-  });
-
-  /// Ruta al archivo de imagen.
-  final String path;
-
-  /// Tamaño de visualización de la imagen.
-  final Size size;
-
-  /// Objeto de imagen decodificado (§9.2).
-  final dynamic image;
-
-  /// Crea una copia de este objeto con los campos dados cambiados.
-  ImageElement copyWith({
-    String? id,
-    Offset? position,
-    int? zIndex,
-    String? path,
-    Size? size,
-    dynamic image,
-  }) {
-    return ImageElement(
-      id: id ?? this.id,
-      position: position ?? this.position,
-      zIndex: zIndex ?? this.zIndex,
-      path: path ?? this.path,
-      size: size ?? this.size,
-      image: image ?? this.image,
-    );
-  }
-}
-
-/// Representa una anotación vectorial (§9.4).
+/// Vector/text annotation element.
 class AnnotationElement extends CanvasElement {
-  /// Crea un [AnnotationElement].
+  /// Creates an [AnnotationElement].
   const AnnotationElement({
     required super.id,
     required super.position,
@@ -105,27 +68,39 @@ class AnnotationElement extends CanvasElement {
     this.endPosition,
     this.points = const [],
     this.text = '',
+    this.textSize = 18,
+    this.opacity = 1.0,
+    this.attachedImageId,
   });
 
-  /// Tipo de anotación.
+  /// Annotation type.
   final AnnotationType type;
 
-  /// Color en formato ARB.
+  /// ARGB color.
   final int color;
 
-  /// Grosor del trazo.
+  /// Stroke width.
   final double strokeWidth;
 
-  /// Posición final (para flechas, rectángulos, etc.).
+  /// End position used by geometric tools.
   final Offset? endPosition;
 
-  /// Lista de puntos para dibujo libre (pencil).
+  /// Freehand points.
   final List<Offset> points;
 
-  /// Contenido de texto (para etiquetas o marcadores).
+  /// Text content for text/bubble/step marker.
   final String text;
 
-  /// Crea una copia de este objeto con los campos dados cambiados.
+  /// Text size for text-based tools.
+  final double textSize;
+
+  /// Opacity used by tools like highlighter.
+  final double opacity;
+
+  /// Owning image id when annotation was created on top of an image.
+  final String? attachedImageId;
+
+  /// Creates a copy with updated fields.
   AnnotationElement copyWith({
     String? id,
     Offset? position,
@@ -134,8 +109,13 @@ class AnnotationElement extends CanvasElement {
     int? color,
     double? strokeWidth,
     Offset? endPosition,
+    bool clearEndPosition = false,
     List<Offset>? points,
     String? text,
+    double? textSize,
+    double? opacity,
+    String? attachedImageId,
+    bool clearAttachedImageId = false,
   }) {
     return AnnotationElement(
       id: id ?? this.id,
@@ -144,66 +124,44 @@ class AnnotationElement extends CanvasElement {
       type: type ?? this.type,
       color: color ?? this.color,
       strokeWidth: strokeWidth ?? this.strokeWidth,
-      endPosition: endPosition ?? this.endPosition,
+      endPosition: clearEndPosition ? null : (endPosition ?? this.endPosition),
       points: points ?? this.points,
       text: text ?? this.text,
+      textSize: textSize ?? this.textSize,
+      opacity: opacity ?? this.opacity,
+      attachedImageId: clearAttachedImageId
+          ? null
+          : (attachedImageId ?? this.attachedImageId),
     );
   }
 }
 
-/// Estado actual del cuadro (composición de elementos) (§9.1).
+/// Full frame state for the composition canvas.
 class FrameState {
-  /// Crea un [FrameState].
+  /// Creates a [FrameState].
   const FrameState({
     this.canvasSize = const Size(1920, 1080),
     this.elements = const [],
-    this.backgroundColor = 0xFF121212, // Color de fondo por defecto (§9.0)
+    this.backgroundColor = 0xFF111111,
   });
 
-  /// Tamaño total del lienzo de trabajo.
+  /// Canvas frame size.
   final Size canvasSize;
 
-  /// Lista de elementos presentes en este cuadro.
+  /// Elements currently placed on frame.
   final List<CanvasElement> elements;
 
-  /// Color de fondo del lienzo en formato ARB.
+  /// Background color ARGB.
   final int backgroundColor;
 
-  /// Crea una copia de este componente con los campos dados cambiados.
+  /// Creates a copy with updated fields.
   FrameState copyWith({
     Size? canvasSize,
     List<CanvasElement>? elements,
     int? backgroundColor,
   }) {
-    // Si se pasan elementos, recalculamos el tamaño si es necesario
-    var finalSize = canvasSize ?? this.canvasSize;
-    if (elements != null && elements.isNotEmpty) {
-      var maxX = 0.0;
-      var maxY = 0.0;
-      for (final e in elements) {
-        if (e is ImageElement) {
-          maxX = maxX > (e.position.dx + e.size.width)
-              ? maxX
-              : (e.position.dx + e.size.width);
-          maxY = maxY > (e.position.dy + e.size.height)
-              ? maxY
-              : (e.position.dy + e.size.height);
-        } else if (e is AnnotationElement && e.endPosition != null) {
-          maxX = maxX > e.position.dx ? maxX : e.position.dx;
-          maxX = maxX > e.endPosition!.dx ? maxX : e.endPosition!.dx;
-          maxY = maxY > e.position.dy ? maxY : e.position.dy;
-          maxY = maxY > e.endPosition!.dy ? maxY : e.endPosition!.dy;
-        } else {
-          maxX = maxX > e.position.dx ? maxX : e.position.dx;
-          maxY = maxY > e.position.dy ? maxY : e.position.dy;
-        }
-      }
-      // Añadir margen
-      finalSize = Size(maxX + 100, maxY + 100);
-    }
-
     return FrameState(
-      canvasSize: finalSize,
+      canvasSize: canvasSize ?? this.canvasSize,
       elements: elements ?? this.elements,
       backgroundColor: backgroundColor ?? this.backgroundColor,
     );

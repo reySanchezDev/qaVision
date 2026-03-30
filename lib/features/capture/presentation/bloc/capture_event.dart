@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/material.dart';
 import 'package:qavision/features/capture/domain/entities/capture_entity.dart';
 import 'package:qavision/features/projects/domain/entities/project_entity.dart';
 
@@ -16,17 +17,36 @@ final class CaptureRequested extends CaptureEvent {
   /// Crea una instancia de [CaptureRequested].
   const CaptureRequested({
     required this.project,
-    this.captureRegion = false,
+    this.captureRect,
+    this.forceSilent = false,
+    this.restoreFloatingWindow = true,
+    this.windowAlreadyHidden = false,
   });
 
   /// Proyecto al que se asignará la captura.
   final ProjectEntity project;
 
-  /// Si se debe capturar una región específica (§2.0).
-  final bool captureRegion;
+  /// Rectángulo de captura en coordenadas de pantalla.
+  /// Si es null, captura pantalla completa.
+  final Rect? captureRect;
+
+  /// Si se debe forzar el modo silencioso (ej. Modo Clip).
+  final bool forceSilent;
+
+  /// Si la pantalla flotante debe volver a mostrarse al finalizar.
+  final bool restoreFloatingWindow;
+
+  /// Si la pantalla flotante ya estaba oculta antes de entrar al BLoC.
+  final bool windowAlreadyHidden;
 
   @override
-  List<Object?> get props => [project, captureRegion];
+  List<Object?> get props => [
+    project,
+    captureRect,
+    forceSilent,
+    restoreFloatingWindow,
+    windowAlreadyHidden,
+  ];
 }
 
 /// Notifica que la captura se completó con éxito.

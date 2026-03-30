@@ -1,65 +1,63 @@
+﻿import 'dart:io' as io;
+import 'dart:ui';
+
 import 'package:flutter/foundation.dart';
+import 'package:qavision/core/config/app_defaults.dart';
 import 'package:qavision/core/services/file_system_service.dart';
+import 'package:qavision/core/services/native_screen_capture_service.dart';
 import 'package:qavision/features/projects/domain/entities/project_entity.dart';
-import 'package:qavision/features/settings/domain/entities/settings_entity.dart';
-import 'package:screen_capturer/screen_capturer.dart';
 
 /// Servicio encargado de realizar capturas de pantalla (§2.0).
-///
-/// Coordina la captura nativa, el procesamiento de la imagen
-/// y el guardado con las reglas de nomenclatura configuradas.
 class CaptureService {
   /// Crea una instancia de [CaptureService].
   CaptureService({
     required FileSystemService fileSystemService,
-  }) : _fileSystem = fileSystemService;
+    required NativeScreenCaptureService nativeCaptureService,
+  }) : _fileSystem = fileSystemService,
+       _nativeCapture = nativeCaptureService;
 
   final FileSystemService _fileSystem;
+  final NativeScreenCaptureService _nativeCapture;
 
-  /// Realiza una captura de pantalla y la guarda (§2.1).
-  ///
-  /// El [project] determina la carpeta de destino.
-  /// Los [settings] determinan la calidad JPG y la máscara de nombre.
+  /// Realiza una captura y la guarda como JPG en la carpeta del proyecto.
   Future<String?> captureAndSave({
     required ProjectEntity project,
-    required SettingsEntity settings,
-    bool captureRegion = false,
+    Rect? captureRect,
   }) async {
     try {
-      // 1. Capturar pantalla o región (§2.0)
-      final capturedData = await screenCapturer.capture(
-        mode: captureRegion ? CaptureMode.region : CaptureMode.screen,
+      // 1) Captura nativa directa a JPG (sin PNG intermedio)
+      // para mantener la maxima calidad.
+      final imageBytes = await _nativeCapture.capturePngBytes(
+        region: captureRect,
+        quality: kAppDefaults.jpgQualityValue,
       );
 
-      if (capturedData == null) return null;
-
-      // 2. Leer bytes de la captura
-      if (capturedData.imagePath == null) return null;
-
-      final imageBytes = await _fileSystem.readFileAsBytes(
-        capturedData.imagePath!,
-      );
-
-      // 3. Generar nombre de archivo basado en máscara (§2.1)
-      final fileName = settings.fileNameMask.isEmpty
+      // 2) Generar nombre de archivo
+      final projectDir = project.folderPath.trim();
+      if (projectDir.isEmpty) {
+        throw Exception('Proyecto sin carpeta valida para guardar');
+      }
+      final fileName = kAppDefaults.fileNameMask.isEmpty
           ? _fileSystem.generateDefaultFileName()
           : _fileSystem.generateFileName(
-              mask: settings.fileNameMask,
+              mask: kAppDefaults.fileNameMask,
               projectName: project.name,
-              projectDir: '${settings.rootFolder}/${project.name}',
+              projectDir: projectDir,
             );
 
-      final outputPath = '${settings.rootFolder}/${project.name}/$fileName';
+      final outputPath = '$projectDir/$fileName';
+      await _fileSystem.createDirectory(projectDir);
 
-      // 4. Guardar como JPG en isolate (§12.2)
-      final savedPath = await _fileSystem.saveAsJpg(
+      // 3) Guardar los bytes JPG directamente (sin re-codificación)
+      final savedPath = await _fileSystem.saveRawJpgBytes(
         imageBytes: imageBytes,
         outputPath: outputPath,
-        quality: settings.jpgQualityValue,
       );
 
-      // Limpiar archivo temporal si existe
-      await _fileSystem.deleteFile(capturedData.imagePath!);
+      final savedFile = io.File(savedPath);
+      if (!savedFile.existsSync() || savedFile.lengthSync() == 0) {
+        throw Exception('No se guardo la captura en disco');
+      }
 
       return savedPath;
     } on Exception catch (e) {

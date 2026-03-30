@@ -16,6 +16,7 @@ class SettingsRepository implements ISettingsRepository {
 
   @override
   Future<SettingsEntity> loadSettings() async {
+    await _storage.reloadFromDisk();
     final map = _storage.getMap(_settingsKey);
     if (map == null) return const SettingsEntity();
     return _fromMap(map);
@@ -48,6 +49,19 @@ class SettingsRepository implements ISettingsRepository {
       clipIntervalSeconds: map['clipIntervalSeconds'] as int? ?? 5,
       showRecentStrip: map['showRecentStrip'] as bool? ?? true,
       showSavedIndicator: map['showSavedIndicator'] as bool? ?? true,
+      viewerDefaultFrameBackgroundColor:
+          map['viewerDefaultFrameBackgroundColor'] as int? ?? 0xFFFFFFFF,
+      viewerDefaultFrameBackgroundOpacity:
+          (map['viewerDefaultFrameBackgroundOpacity'] as num?)?.toDouble() ??
+          1.0,
+      viewerDefaultFrameBorderColor:
+          map['viewerDefaultFrameBorderColor'] as int? ?? 0x33000000,
+      viewerDefaultFrameBorderWidth:
+          (map['viewerDefaultFrameBorderWidth'] as num?)?.toDouble() ?? 1.0,
+      viewerDefaultFramePadding:
+          (map['viewerDefaultFramePadding'] as num?)?.toDouble() ?? 0.0,
+      lastX: (map['lastX'] as num?)?.toDouble() ?? 0.0,
+      lastY: (map['lastY'] as num?)?.toDouble() ?? 100.0,
     );
   }
 
@@ -71,6 +85,15 @@ class SettingsRepository implements ISettingsRepository {
       'clipIntervalSeconds': settings.clipIntervalSeconds,
       'showRecentStrip': settings.showRecentStrip,
       'showSavedIndicator': settings.showSavedIndicator,
+      'viewerDefaultFrameBackgroundColor':
+          settings.viewerDefaultFrameBackgroundColor,
+      'viewerDefaultFrameBackgroundOpacity':
+          settings.viewerDefaultFrameBackgroundOpacity,
+      'viewerDefaultFrameBorderColor': settings.viewerDefaultFrameBorderColor,
+      'viewerDefaultFrameBorderWidth': settings.viewerDefaultFrameBorderWidth,
+      'viewerDefaultFramePadding': settings.viewerDefaultFramePadding,
+      'lastX': settings.lastX,
+      'lastY': settings.lastY,
     };
   }
 

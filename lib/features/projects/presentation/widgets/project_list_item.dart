@@ -9,8 +9,6 @@ import 'package:qavision/features/projects/domain/entities/project_entity.dart';
 import 'package:qavision/features/projects/presentation/bloc/project_bloc.dart';
 import 'package:qavision/features/projects/presentation/bloc/project_event.dart';
 import 'package:qavision/features/projects/presentation/widgets/project_form_modal.dart';
-import 'package:qavision/features/settings/presentation/bloc/settings_bloc.dart';
-import 'package:qavision/features/settings/presentation/bloc/settings_state.dart';
 import 'package:qavision/l10n/app_localizations.dart';
 
 /// Item de la lista de proyectos.
@@ -51,7 +49,7 @@ class ProjectListItem extends StatelessWidget {
               ),
               child: Center(
                 child: AppText(
-                  project.alias,
+                  _buildShortCode(project.name),
                   color: Colors.white,
                 ),
               ),
@@ -93,18 +91,9 @@ class ProjectListItem extends StatelessWidget {
                   tooltip: l10n.projectsOpenFolder,
                   onPressed: () {
                     if (Platform.isWindows) {
-                      final settingsState = context.read<SettingsBloc>().state;
-                      if (settingsState is SettingsLoadSuccess) {
-                        final rootFolder = settingsState.settings.rootFolder;
-                        if (rootFolder != null) {
-                          final separator = Platform.pathSeparator;
-                          unawaited(
-                            Process.run('explorer.exe', [
-                              '$rootFolder$separator${project.name}',
-                            ]),
-                          );
-                        }
-                      }
+                      unawaited(
+                        Process.run('explorer.exe', [project.folderPath]),
+                      );
                     }
                   },
                 ),
@@ -132,5 +121,12 @@ class ProjectListItem extends StatelessWidget {
         child: ProjectFormModal(project: project),
       ),
     );
+  }
+
+  String _buildShortCode(String value) {
+    final clean = value.replaceAll(RegExp('[^A-Za-z0-9]'), '').toUpperCase();
+    if (clean.isEmpty) return 'PRY';
+    if (clean.length >= 3) return clean.substring(0, 3);
+    return clean.padRight(3, 'X');
   }
 }

@@ -1,96 +1,315 @@
+import 'dart:math' as math;
+
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:qavision/core/config/app_defaults.dart';
+import 'package:qavision/features/viewer/domain/entities/image_frame_component.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_state.dart';
+import 'package:qavision/features/viewer/presentation/pages/viewer_page_intents.dart';
+import 'package:qavision/features/viewer/presentation/utils/viewer_canvas_resize_policy.dart';
 import 'package:qavision/features/viewer/presentation/widgets/recent_captures_strip.dart';
 import 'package:qavision/features/viewer/presentation/widgets/viewer_canvas.dart';
-import 'package:qavision/features/viewer/presentation/widgets/viewer_properties_panel.dart';
+import 'package:qavision/features/viewer/presentation/widgets/viewer_canvas_drop_target.dart';
+import 'package:qavision/features/viewer/presentation/widgets/viewer_empty_state_overlay.dart';
+import 'package:qavision/features/viewer/presentation/widgets/viewer_section_boundary.dart';
 import 'package:qavision/features/viewer/presentation/widgets/viewer_toolbar.dart';
+import 'package:qavision/features/viewer/presentation/widgets/viewer_zoom_controls.dart';
 
-/// Pantalla principal del visor y editor de capturas (§9).
-class ViewerPage extends StatelessWidget {
-  /// Crea una instancia de [ViewerPage].
+/// Main viewer/editor page.
+class ViewerPage extends StatefulWidget {
+  /// Creates [ViewerPage].
   const ViewerPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: _buildAppBar(context),
-      body: BlocBuilder<ViewerBloc, ViewerState>(
-        builder: (context, state) {
-          if (state.isLoading && state.frame.elements.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
-          }
+  State<ViewerPage> createState() => _ViewerPageState();
+}
 
-          return Column(
-            children: [
-              const ViewerPropertiesPanel(),
-              Expanded(
-                child: Row(
-                  children: [
-                    const ViewerToolbar(),
-                    Expanded(
-                      child: ClipRect(
-                        child: InteractiveViewer(
-                          maxScale: 4,
-                          minScale: 0.5,
-                          child: Center(
-                            child: AspectRatio(
-                              aspectRatio:
-                                  state.frame.canvasSize.width /
-                                  state.frame.canvasSize.height,
-                              child: const ViewerCanvas(),
-                            ),
+class _ViewerPageState extends State<ViewerPage> {
+  static const double _minZoom = 0.5;
+  double _zoom = 1;
+  Size? _lastRequestedFrameSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final showRecentStrip = _resolveShowRecentStrip(context);
+
+    return Shortcuts(
+      shortcuts: const {
+        SingleActivator(LogicalKeyboardKey.keyZ, control: true):
+            ViewerUndoIntent(),
+        SingleActivator(LogicalKeyboardKey.keyY, control: true):
+            ViewerRedoIntent(),
+        SingleActivator(LogicalKeyboardKey.delete): ViewerDeleteIntent(),
+        SingleActivator(LogicalKeyboardKey.backspace): ViewerDeleteIntent(),
+      },
+      child: Actions(
+        actions: {
+          ViewerUndoIntent: CallbackAction<ViewerUndoIntent>(
+            onInvoke: (_) {
+              context.read<ViewerBloc>().add(const ViewerUndoRequested());
+              return null;
+            },
+          ),
+          ViewerRedoIntent: CallbackAction<ViewerRedoIntent>(
+            onInvoke: (_) {
+              context.read<ViewerBloc>().add(const ViewerRedoRequested());
+              return null;
+            },
+          ),
+          ViewerDeleteIntent: CallbackAction<ViewerDeleteIntent>(
+            onInvoke: (_) {
+              final selectedId = context
+                  .read<ViewerBloc>()
+                  .state
+                  .selectedElementId;
+              if (selectedId != null) {
+                context.read<ViewerBloc>().add(
+                  ViewerElementDeleted(elementId: selectedId),
+                );
+              }
+              return null;
+            },
+          ),
+        },
+        child: Focus(
+          autofocus: true,
+          child: Scaffold(
+            backgroundColor: const Color(0xFF101010),
+            body: BlocBuilder<ViewerBloc, ViewerState>(
+              builder: (context, state) {
+                if (state.isLoading && state.frame.elements.isEmpty) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                return SafeArea(
+                  bottom: false,
+                  child: Column(
+                    children: [
+                      ViewerSectionBoundary(
+                        sectionName: 'toolbar',
+                        fallbackHeight: 66,
+                        builder: (_) => const ViewerToolbar(),
+                      ),
+                      Expanded(
+                        child: ViewerSectionBoundary(
+                          sectionName: 'canvas',
+                          builder: (_) => Stack(
+                            children: [
+                              ColoredBox(
+                                color: const Color(0xFF0F0F0F),
+                                child: Listener(
+                                  onPointerSignal: _onPointerSignal,
+                                  child: LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      final targetWidth = math
+                                          .max(
+                                            320,
+                                            constraints.maxWidth,
+                                          )
+                                          .toDouble();
+                                      final targetHeight = math
+                                          .max(
+                                            220,
+                                            constraints.maxHeight,
+                                          )
+                                          .toDouble();
+                                      final targetSize = Size(
+                                        targetWidth,
+                                        targetHeight,
+                                      );
+                                      _requestFrameResizeIfNeeded(
+                                        context: context,
+                                        targetSize: targetSize,
+                                        currentSize: state.frame.canvasSize,
+                                      );
+                                      final maxZoom = _maxZoomForState(state);
+                                      final effectiveZoom = _zoom.clamp(
+                                        _minZoom,
+                                        maxZoom,
+                                      );
+                                      _syncZoomIfNeeded(effectiveZoom);
+
+                                      return Center(
+                                        child: ViewerCanvasDropTarget(
+                                          frameSize: state.frame.canvasSize,
+                                          contentZoom: effectiveZoom,
+                                          child: DecoratedBox(
+                                            decoration: BoxDecoration(
+                                              boxShadow: const [
+                                                BoxShadow(
+                                                  color: Colors.black38,
+                                                  blurRadius: 20,
+                                                ),
+                                              ],
+                                              borderRadius:
+                                                  BorderRadius.circular(
+                                                    6,
+                                                  ),
+                                            ),
+                                            child: ViewerCanvas(
+                                              contentZoom: effectiveZoom,
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                              if (!state.isLoading &&
+                                  state.frame.elements.isEmpty)
+                                const ViewerEmptyStateOverlay(),
+                              ViewerZoomControls(
+                                zoom: _zoom.clamp(
+                                  _minZoom,
+                                  _maxZoomForState(state),
+                                ),
+                                onZoomIn: () => _zoomIn(state),
+                                onZoomOut: () => _zoomOut(state),
+                                onReset: _resetZoom,
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const RecentCapturesStrip(),
-            ],
-          );
-        },
+                      if (showRecentStrip)
+                        ViewerSectionBoundary(
+                          sectionName: 'recent_strip',
+                          fallbackHeight: 176,
+                          builder: (_) => const RecentCapturesStrip(),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
       ),
     );
   }
 
-  PreferredSizeWidget _buildAppBar(BuildContext context) {
-    return AppBar(
-      title: const Text('Visor de Captura'),
-      backgroundColor: Colors.grey[900],
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.copy),
-          onPressed: () {
-            context.read<ViewerBloc>().add(const ViewerCopyRequested());
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Imagen copiada al portapapeles')),
-            );
-          },
-          tooltip: 'Copiar al portapapeles',
-        ),
-        IconButton(
-          icon: const Icon(Icons.share),
-          onPressed: () {
-            context.read<ViewerBloc>().add(const ViewerShareRequested());
-          },
-          tooltip: 'Compartir',
-        ),
-        const SizedBox(width: 8),
-        ElevatedButton.icon(
-          onPressed: () {
-            context.read<ViewerBloc>().add(const ViewerExportRequested());
-            Navigator.of(context).pop();
-          },
-          icon: const Icon(Icons.check),
-          label: const Text('Finalizar'),
-        ),
-        const SizedBox(width: 8),
-      ],
-    );
+  bool _resolveShowRecentStrip(BuildContext context) {
+    return kAppDefaults.showRecentStrip;
+  }
+
+  void _requestFrameResizeIfNeeded({
+    required BuildContext context,
+    required Size targetSize,
+    required Size currentSize,
+  }) {
+    if (ViewerCanvasResizePolicy.isCanvasAligned(
+      targetSize: targetSize,
+      currentSize: currentSize,
+    )) {
+      _lastRequestedFrameSize = null;
+      return;
+    }
+    if (_lastRequestedFrameSize == targetSize) {
+      return;
+    }
+
+    _lastRequestedFrameSize = targetSize;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<ViewerBloc>().add(ViewerCanvasResized(targetSize));
+    });
+  }
+
+  void _zoomIn(ViewerState state) {
+    final maxZoom = _maxZoomForState(state);
+    setState(() {
+      _zoom = (_zoom + 0.1).clamp(_minZoom, maxZoom);
+    });
+  }
+
+  void _zoomOut(ViewerState state) {
+    final maxZoom = _maxZoomForState(state);
+    setState(() {
+      _zoom = (_zoom - 0.1).clamp(_minZoom, maxZoom);
+    });
+  }
+
+  void _resetZoom() {
+    setState(() {
+      _zoom = 1;
+    });
+  }
+
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    final state = context.read<ViewerBloc>().state;
+    if (event.scrollDelta.dy > 0) {
+      _zoomOut(state);
+      return;
+    }
+    if (event.scrollDelta.dy < 0) {
+      _zoomIn(state);
+    }
+  }
+
+  double _maxZoomForState(ViewerState state) {
+    const hardMax = 3.0;
+    final image = _imageForZoomConstraint(state);
+    if (image == null) return hardMax;
+    final frameRect = Offset.zero & state.frame.canvasSize;
+    final imageRect = image.position & image.size;
+    final center = frameRect.center;
+
+    var cap = hardMax;
+
+    if (imageRect.left < center.dx) {
+      final denominator = center.dx - imageRect.left;
+      if (denominator > 0) {
+        cap = math.min(cap, center.dx / denominator);
+      }
+    }
+    if (imageRect.right > center.dx) {
+      final denominator = imageRect.right - center.dx;
+      if (denominator > 0) {
+        cap = math.min(cap, (frameRect.right - center.dx) / denominator);
+      }
+    }
+    if (imageRect.top < center.dy) {
+      final denominator = center.dy - imageRect.top;
+      if (denominator > 0) {
+        cap = math.min(cap, center.dy / denominator);
+      }
+    }
+    if (imageRect.bottom > center.dy) {
+      final denominator = imageRect.bottom - center.dy;
+      if (denominator > 0) {
+        cap = math.min(cap, (frameRect.bottom - center.dy) / denominator);
+      }
+    }
+
+    if (!cap.isFinite) return hardMax;
+    return cap.clamp(1.0, hardMax);
+  }
+
+  ImageFrameComponent? _imageForZoomConstraint(ViewerState state) {
+    final selectedId = state.selectedElementId;
+    if (selectedId != null) {
+      for (final element in state.frame.elements) {
+        if (element.id == selectedId && element is ImageFrameComponent) {
+          return element;
+        }
+      }
+    }
+    return state.frame.elements.whereType<ImageFrameComponent>().firstOrNull;
+  }
+
+  void _syncZoomIfNeeded(double effectiveZoom) {
+    if ((_zoom - effectiveZoom).abs() < 0.001) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _zoom = effectiveZoom;
+      });
+    });
   }
 }

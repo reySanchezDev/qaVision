@@ -47,6 +47,23 @@ class FileSystemService {
     return Directory(path).existsSync();
   }
 
+  /// Lista subdirectorios directos de [path].
+  Future<List<String>> listDirectories(String path) async {
+    final dir = Directory(path);
+    if (!dir.existsSync()) {
+      return <String>[];
+    }
+
+    final children = await dir
+        .list(followLinks: false)
+        .where((entity) => entity is Directory)
+        .cast<Directory>()
+        .toList();
+
+    children.sort((a, b) => a.path.compareTo(b.path));
+    return children.map((directory) => directory.path).toList(growable: false);
+  }
+
   /// Guarda una imagen como JPG con la calidad especificada.
   ///
   /// [imageBytes] son los bytes crudos de la imagen (PNG/BMP).
@@ -58,9 +75,12 @@ class FileSystemService {
   Future<String> saveAsJpg({
     required Uint8List imageBytes,
     required String outputPath,
-    int quality = 85,
+    int quality = 95,
+    bool overwrite = false,
   }) async {
-    final safePath = _ensureUniqueFilename('$outputPath.jpg');
+    final safePath = overwrite
+        ? '$outputPath.jpg'
+        : _ensureUniqueFilename('$outputPath.jpg');
 
     // Encodificar en isolate para no bloquear UI (§12.2)
     await compute(
@@ -72,6 +92,34 @@ class FileSystemService {
       ),
     );
 
+    final savedFile = File(safePath);
+    if (!savedFile.existsSync() || savedFile.lengthSync() == 0) {
+      final decoded = img.decodeImage(imageBytes);
+      if (decoded == null) {
+        throw Exception('No se pudo decodificar la imagen capturada');
+      }
+      final jpgBytes = img.encodeJpg(decoded, quality: quality);
+      await savedFile.parent.create(recursive: true);
+      await savedFile.writeAsBytes(jpgBytes, flush: true);
+    }
+
+    return safePath;
+  }
+
+  /// Guarda bytes JPG ya codificados directamente en disco sin re-codificación.
+  ///
+  /// Usa este método cuando los bytes ya están en formato JPG (p.ej. captura
+  /// nativa directa) para evitar una segunda codificacion
+  /// con perdida de calidad.
+  /// [outputPath] es la ruta completa sin extensión; se añadirá `.jpg`.
+  Future<String> saveRawJpgBytes({
+    required Uint8List imageBytes,
+    required String outputPath,
+  }) async {
+    final safePath = _ensureUniqueFilename('$outputPath.jpg');
+    final file = File(safePath);
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(imageBytes, flush: true);
     return safePath;
   }
 
@@ -231,7 +279,9 @@ class _JpgEncodeParams {
 /// con la calidad especificada.
 Future<void> _encodeAndSaveJpg(_JpgEncodeParams params) async {
   final decoded = img.decodeImage(params.imageBytes);
-  if (decoded == null) return;
+  if (decoded == null) {
+    throw Exception('No se pudo decodificar imagen para JPG');
+  }
 
   final jpgBytes = img.encodeJpg(decoded, quality: params.quality);
   final file = File(params.outputPath);
