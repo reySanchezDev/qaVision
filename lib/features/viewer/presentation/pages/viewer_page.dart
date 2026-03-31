@@ -10,11 +10,13 @@ import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_state.dart';
 import 'package:qavision/features/viewer/presentation/pages/viewer_page_intents.dart';
+import 'package:qavision/features/viewer/presentation/services/viewer_viewport_transform_service.dart';
 import 'package:qavision/features/viewer/presentation/utils/viewer_canvas_resize_policy.dart';
 import 'package:qavision/features/viewer/presentation/widgets/recent_captures_strip.dart';
 import 'package:qavision/features/viewer/presentation/widgets/viewer_canvas.dart';
 import 'package:qavision/features/viewer/presentation/widgets/viewer_canvas_drop_target.dart';
 import 'package:qavision/features/viewer/presentation/widgets/viewer_empty_state_overlay.dart';
+import 'package:qavision/features/viewer/presentation/widgets/viewer_layers_panel.dart';
 import 'package:qavision/features/viewer/presentation/widgets/viewer_section_boundary.dart';
 import 'package:qavision/features/viewer/presentation/widgets/viewer_toolbar.dart';
 import 'package:qavision/features/viewer/presentation/widgets/viewer_zoom_controls.dart';
@@ -29,10 +31,10 @@ class ViewerPage extends StatefulWidget {
 }
 
 class _ViewerPageState extends State<ViewerPage> {
-  static const double _minZoom = 0.1;
   Size? _lastRequestedFrameSize;
   Size _lastViewportSize = Size.zero;
   String? _lastAutoFitImageId;
+  bool _showLayersPanel = true;
 
   @override
   Widget build(BuildContext context) {
@@ -141,7 +143,11 @@ class _ViewerPageState extends State<ViewerPage> {
                                         fitZoom,
                                       );
                                       final effectiveZoom = state.canvasZoom
-                                          .clamp(_minZoom, maxZoom);
+                                          .clamp(
+                                            ViewerViewportTransformService
+                                                .defaultMinZoom,
+                                            maxZoom,
+                                          );
 
                                       return ClipRect(
                                         child: Center(
@@ -173,9 +179,14 @@ class _ViewerPageState extends State<ViewerPage> {
                               if (!state.isLoading &&
                                   state.frame.elements.isEmpty)
                                 const ViewerEmptyStateOverlay(),
+                              if (state.frame.elements.isNotEmpty)
+                                ViewerLayersPanel(
+                                  isVisible: _showLayersPanel,
+                                  onToggleVisibility: _toggleLayersPanel,
+                                ),
                               ViewerZoomControls(
                                 zoom: state.canvasZoom.clamp(
-                                  _minZoom,
+                                  ViewerViewportTransformService.defaultMinZoom,
                                   _maxZoomForState(state),
                                 ),
                                 fitZoom: _fitZoomForState(
@@ -208,6 +219,12 @@ class _ViewerPageState extends State<ViewerPage> {
     );
   }
 
+  void _toggleLayersPanel() {
+    setState(() {
+      _showLayersPanel = !_showLayersPanel;
+    });
+  }
+
   bool _resolveShowRecentStrip(BuildContext context) {
     return kAppDefaults.showRecentStrip;
   }
@@ -238,21 +255,35 @@ class _ViewerPageState extends State<ViewerPage> {
   void _zoomIn(ViewerState state) {
     final maxZoom = _maxZoomForState(state);
     context.read<ViewerBloc>().add(
-      ViewerZoomChanged((state.canvasZoom + 0.1).clamp(_minZoom, maxZoom)),
+      ViewerZoomChanged(
+        (state.canvasZoom + 0.1).clamp(
+          ViewerViewportTransformService.defaultMinZoom,
+          maxZoom,
+        ),
+      ),
     );
   }
 
   void _zoomOut(ViewerState state) {
     final maxZoom = _maxZoomForState(state);
     context.read<ViewerBloc>().add(
-      ViewerZoomChanged((state.canvasZoom - 0.1).clamp(_minZoom, maxZoom)),
+      ViewerZoomChanged(
+        (state.canvasZoom - 0.1).clamp(
+          ViewerViewportTransformService.defaultMinZoom,
+          maxZoom,
+        ),
+      ),
     );
   }
 
   void _setActualSize(ViewerState state) {
     final maxZoom = _maxZoomForState(state);
     context.read<ViewerBloc>().add(
-      ViewerZoomChanged(1.clamp(_minZoom, maxZoom).toDouble()),
+      ViewerZoomChanged(
+        1
+            .clamp(ViewerViewportTransformService.defaultMinZoom, maxZoom)
+            .toDouble(),
+      ),
     );
   }
 
@@ -274,19 +305,15 @@ class _ViewerPageState extends State<ViewerPage> {
   }
 
   double _maxZoomForState(ViewerState state) {
-    const hardMax = 3.0;
     final image = _fitTargetImage(state);
     if (image == null) {
-      return hardMax;
+      return ViewerViewportTransformService.defaultHardMaxZoom;
     }
 
-    final maxWidthZoom = state.frame.canvasSize.width / image.size.width;
-    final maxHeightZoom = state.frame.canvasSize.height / image.size.height;
-    final limit = math.min(maxWidthZoom, maxHeightZoom);
-    if (!limit.isFinite) {
-      return hardMax;
-    }
-    return limit.clamp(_minZoom, hardMax);
+    return ViewerViewportTransformService.resolveMaxZoom(
+      canvasSize: state.frame.canvasSize,
+      imageSize: image.size,
+    );
   }
 
   double _fitZoomForState(ViewerState state, Size viewportSize) {
@@ -295,16 +322,13 @@ class _ViewerPageState extends State<ViewerPage> {
       return 1;
     }
 
-    const padding = 48.0;
-    final availableWidth = math.max(1, viewportSize.width - padding);
-    final availableHeight = math.max(1, viewportSize.height - padding);
-    final fitZoom = math.min(
-      availableWidth / image.size.width,
-      availableHeight / image.size.height,
+    return ViewerViewportTransformService.resolveFitZoom(
+      viewportSize: viewportSize,
+      imageSize: image.size,
+      maxZoom: _maxZoomForState(state),
     );
-
-    return fitZoom.clamp(_minZoom, _maxZoomForState(state));
   }
+
   ImageFrameComponent? _fitTargetImage(ViewerState state) {
     return state.frame.elements.whereType<ImageFrameComponent>().firstOrNull;
   }

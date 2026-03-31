@@ -9,6 +9,8 @@ import 'package:qavision/core/services/file_system_service.dart';
 import 'package:qavision/core/services/share_service.dart';
 import 'package:qavision/features/viewer/data/services/viewer_document_persistence_service.dart';
 import 'package:qavision/features/viewer/domain/entities/image_frame_component.dart';
+import 'package:qavision/features/viewer/domain/entities/image_frame_style.dart';
+import 'package:qavision/features/viewer/domain/entities/image_frame_transform.dart';
 import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
@@ -37,6 +39,15 @@ Future<void> _drainQueue() async {
 Future<void> _waitForAutoSave(ViewerBloc bloc) async {
   for (var i = 0; i < 30; i++) {
     if (bloc.state.autoSavePath != null || bloc.state.errorMessage != null) {
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+  }
+}
+
+Future<void> _waitForFile(String path) async {
+  for (var i = 0; i < 30; i++) {
+    if (File(path).existsSync()) {
       return;
     }
     await Future<void>.delayed(const Duration(milliseconds: 120));
@@ -138,6 +149,62 @@ void main() {
     });
 
     test(
+      'autosave crea borrador y la siguiente apertura recupera la sesion',
+      () async {
+      final imagePath = await _writeTestJpg(
+        '${tempDir.path}${Platform.pathSeparator}recover_session.jpg',
+      );
+      final persistence = ViewerDocumentPersistenceService(
+        fileSystemService: FileSystemService(),
+      );
+
+      bloc.add(ViewerStarted(imagePath: imagePath));
+      await _drainQueue();
+      await _waitForViewerIdle(bloc);
+
+      final image = bloc.state.frame.elements
+          .whereType<ImageFrameComponent>()
+          .first;
+      bloc.add(const ViewerInteractionStarted());
+      bloc.add(
+        ViewerElementMoved(
+          elementId: image.id,
+          position: const Offset(180, 150),
+        ),
+      );
+      await _drainQueue();
+      bloc.add(const ViewerInteractionFinished());
+      await _waitForAutoSave(bloc);
+
+      final draftFile = File(
+        persistence.recoveryDraftPathForImage(imagePath),
+      );
+      await _waitForFile(draftFile.path);
+      expect(draftFile.existsSync(), isTrue);
+
+      await bloc.close();
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+
+      bloc = ViewerBloc(
+        fileSystemService: FileSystemService(),
+        clipboardService: _FakeClipboardService(),
+        shareService: _FakeShareService(),
+        documentPersistenceService: persistence,
+      );
+
+      bloc.add(ViewerStarted(imagePath: imagePath));
+      await _drainQueue();
+      await _waitForViewerIdle(bloc);
+
+      final reopened = bloc.state.frame.elements
+          .whereType<ImageFrameComponent>()
+          .first;
+      expect(reopened.position, const Offset(180, 150));
+      expect(bloc.state.recoveredSession, isTrue);
+      },
+    );
+
+    test(
       'al guardar una sola imagen no agrega borde extra en derecha ni abajo',
       () async {
         final imagePath = await _writeTestJpg(
@@ -219,6 +286,63 @@ void main() {
           .first;
       expect(bloc.state.selectedElementId, base.id);
     });
+
+    test(
+      'reabrir una imagen guardada no cambia su frame por el zoom previo',
+      () async {
+        final imagePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}zoom_reopen.jpg',
+        );
+
+        final persistence = ViewerDocumentPersistenceService(
+          fileSystemService: FileSystemService(),
+        );
+        const baseComponent = ImageFrameComponent(
+          id: 'root',
+          position: Offset(120, 90),
+          zIndex: 0,
+          path: '',
+          contentSize: Size(900, 700),
+          style: ImageFrameStyle(
+            backgroundColor: 0xFFFFFFFF,
+            backgroundOpacity: 1,
+            borderColor: 0x00000000,
+            borderWidth: 0,
+            padding: 0,
+          ),
+          transform: ImageFrameTransform(
+            position: Offset(120, 90),
+            size: Size(900, 700),
+          ),
+          isLockedBase: true,
+        );
+        final frame =
+            FrameState(
+              canvasSize: const Size(1500, 900),
+              elements: [baseComponent.copyWith(path: imagePath)],
+            ).copyWith(
+              elements: [baseComponent.copyWith(path: imagePath)],
+            );
+
+        await persistence.saveEditableFrame(imagePath: imagePath, frame: frame);
+
+        bloc.add(ViewerStarted(imagePath: imagePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+        bloc.add(const ViewerZoomChanged(2.4));
+        await _drainQueue();
+
+        bloc.add(ViewerStarted(imagePath: imagePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final reopened = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        expect(reopened.size.width, closeTo(900, 0.001));
+        expect(reopened.size.height, closeTo(700, 0.001));
+      },
+    );
 
     test('permite redimensionar imagen por debajo de 48px', () async {
       final imagePath = await _writeTestJpg(
@@ -306,66 +430,110 @@ void main() {
     });
 
     test(
+      'con zoom reducido la imagen raiz puede recorrer todo el workspace',
+      () async {
+        final imagePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}zoom_reduced_move.jpg',
+        );
+
+        bloc.add(ViewerStarted(imagePath: imagePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        bloc.add(const ViewerZoomChanged(0.5));
+        await _drainQueue();
+
+        final image = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        final workspace = ViewerWorkspaceLayout.resolve(
+          bloc.state.frame.canvasSize,
+        );
+
+        bloc.add(
+          ViewerElementMoved(
+            elementId: image.id,
+            position: const Offset(99999, 99999),
+          ),
+        );
+        await _drainQueue();
+
+        final moved = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((element) => element.id == image.id);
+        expect(
+          moved.position.dx,
+          closeTo(workspace.right - (moved.size.width * 0.5), 0.001),
+        );
+        expect(
+          moved.position.dy,
+          closeTo(workspace.bottom - (moved.size.height * 0.5), 0.001),
+        );
+      },
+    );
+
+    test(
       'mantiene la imagen completamente dentro del workspace del visor',
       () async {
-      final imagePath = await _writeTestJpg(
-        '${tempDir.path}${Platform.pathSeparator}clamp_inside_canvas.jpg',
-      );
+        final imagePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}clamp_inside_canvas.jpg',
+        );
 
-      bloc.add(ViewerStarted(imagePath: imagePath));
-      await _drainQueue();
-      await _waitForViewerIdle(bloc);
+        bloc.add(ViewerStarted(imagePath: imagePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
 
-      final image = bloc.state.frame.elements
-          .whereType<ImageFrameComponent>()
-          .first;
+        final image = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
 
-      bloc.add(
-        ViewerElementMoved(
-          elementId: image.id,
-          position: const Offset(-500, -300),
-        ),
-      );
-      await _drainQueue();
+        bloc.add(
+          ViewerElementMoved(
+            elementId: image.id,
+            position: const Offset(-500, -300),
+          ),
+        );
+        await _drainQueue();
 
-      final movedToOrigin = bloc.state.frame.elements
-          .whereType<ImageFrameComponent>()
-          .firstWhere((element) => element.id == image.id);
-      final workspaceRectAtOrigin = ViewerWorkspaceLayout.resolve(
-        bloc.state.frame.canvasSize,
-      );
-      expect(
-        movedToOrigin.position.dx,
-        greaterThanOrEqualTo(workspaceRectAtOrigin.left),
-      );
-      expect(
-        movedToOrigin.position.dy,
-        greaterThanOrEqualTo(workspaceRectAtOrigin.top),
-      );
+        final movedToOrigin = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((element) => element.id == image.id);
+        final workspaceRectAtOrigin = ViewerWorkspaceLayout.resolve(
+          bloc.state.frame.canvasSize,
+        );
+        expect(
+          movedToOrigin.position.dx,
+          greaterThanOrEqualTo(workspaceRectAtOrigin.left),
+        );
+        expect(
+          movedToOrigin.position.dy,
+          greaterThanOrEqualTo(workspaceRectAtOrigin.top),
+        );
 
-      final workspaceRect = ViewerWorkspaceLayout.resolve(
-        bloc.state.frame.canvasSize,
-      );
-      bloc.add(
-        ViewerElementMoved(
-          elementId: image.id,
-          position: const Offset(99999, 99999),
-        ),
-      );
-      await _drainQueue();
+        final workspaceRect = ViewerWorkspaceLayout.resolve(
+          bloc.state.frame.canvasSize,
+        );
+        bloc.add(
+          ViewerElementMoved(
+            elementId: image.id,
+            position: const Offset(99999, 99999),
+          ),
+        );
+        await _drainQueue();
 
-      final movedToEdge = bloc.state.frame.elements
-          .whereType<ImageFrameComponent>()
-          .firstWhere((element) => element.id == image.id);
-      expect(
-        movedToEdge.position.dx,
-        lessThanOrEqualTo(workspaceRect.right - movedToEdge.size.width),
-      );
-      expect(
-        movedToEdge.position.dy,
-        lessThanOrEqualTo(workspaceRect.bottom - movedToEdge.size.height),
-      );
-    });
+        final movedToEdge = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((element) => element.id == image.id);
+        expect(
+          movedToEdge.position.dx,
+          lessThanOrEqualTo(workspaceRect.right - movedToEdge.size.width),
+        );
+        expect(
+          movedToEdge.position.dy,
+          lessThanOrEqualTo(workspaceRect.bottom - movedToEdge.size.height),
+        );
+      },
+    );
 
     test('redimensiona hacia arriba/izquierda sin escalar contenido', () async {
       final imagePath = await _writeTestJpg(
@@ -635,17 +803,13 @@ void main() {
         );
         final delta = movedImage.position - beforeMove.position;
         expect(
-          (projectedAfter.position.dx -
-                      projectedBefore.position.dx -
-                      delta.dx)
+          (projectedAfter.position.dx - projectedBefore.position.dx - delta.dx)
                   .abs() <
               0.001,
           isTrue,
         );
         expect(
-          (projectedAfter.position.dy -
-                      projectedBefore.position.dy -
-                      delta.dy)
+          (projectedAfter.position.dy - projectedBefore.position.dy - delta.dy)
                   .abs() <
               0.001,
           isTrue,
@@ -826,6 +990,370 @@ void main() {
             )
             .toList(growable: false);
         expect(generatedComposed.length, 1);
+      },
+    );
+
+    test(
+      'inserta imagen dentro del frame bajo el punto de drop '
+      'aunque no este seleccionado',
+      () async {
+        final basePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}drop_into_frame.jpg',
+        );
+        final extraPath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}drop_child.jpg',
+        );
+
+        bloc.add(ViewerStarted(imagePath: basePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final baseImage = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        bloc.add(
+          ViewerElementResized(
+            elementId: baseImage.id,
+            size: const Size(420, 320),
+          ),
+        );
+        await _drainQueue();
+
+        bloc.add(const ViewerElementSelected());
+        await _drainQueue();
+
+        final refreshedBase = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        bloc.add(
+          ViewerImageAdded(
+            imagePath: extraPath,
+            projectPath: tempDir.path,
+            position: refreshedBase.contentViewportRect.center,
+          ),
+        );
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final images = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .toList(growable: false);
+        expect(images.length, 2);
+
+        final root = images.firstWhere((image) => image.parentImageId == null);
+        final child = images.firstWhere(
+          (image) => image.parentImageId == root.id,
+        );
+        expect(
+          root.contentViewportRect.contains(child.frameRect.topLeft),
+          isTrue,
+        );
+        expect(
+          root.contentViewportRect.contains(child.frameRect.bottomRight),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'redimensionar un frame padre conserva la posicion absoluta '
+      'de sus subimagenes cuando siguen dentro del viewport',
+      () async {
+        final basePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}resize_parent_base.jpg',
+        );
+        final childPath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}resize_parent_child.jpg',
+        );
+
+        bloc.add(ViewerStarted(imagePath: basePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final root = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        bloc.add(
+          ViewerElementResized(
+            elementId: root.id,
+            size: const Size(900, 600),
+            position: const Offset(100, 80),
+          ),
+        );
+        await _drainQueue();
+
+        bloc.add(
+          ViewerImageAdded(
+            imagePath: childPath,
+            projectPath: tempDir.path,
+            position: const Offset(700, 220),
+          ),
+        );
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final rootBefore = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.parentImageId == null);
+        final childBefore = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.parentImageId == rootBefore.id);
+        final expectedAbsolutePosition = childBefore.position;
+
+        bloc.add(
+          ViewerElementResized(
+            elementId: rootBefore.id,
+            size: const Size(1050, 680),
+            position: const Offset(140, 110),
+          ),
+        );
+        await _drainQueue();
+
+        final rootAfter = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.id == rootBefore.id);
+        final childAfter = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.id == childBefore.id);
+
+        expect(
+          childAfter.position.dx,
+          closeTo(expectedAbsolutePosition.dx, 0.001),
+        );
+        expect(
+          childAfter.position.dy,
+          closeTo(expectedAbsolutePosition.dy, 0.001),
+        );
+        expect(
+          rootAfter.contentViewportRect.contains(childAfter.frameRect.topLeft),
+          isTrue,
+        );
+        expect(
+          rootAfter.contentViewportRect.contains(
+            childAfter.frameRect.bottomRight,
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'si el drop cae fuera del frame seleccionado inserta una nueva raiz',
+      () async {
+        final basePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}drop_outside_selected.jpg',
+        );
+        final extraPath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}drop_outside_child.jpg',
+        );
+
+        bloc.add(ViewerStarted(imagePath: basePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final baseImage = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        final outsideDropPoint = Offset(
+          bloc.state.frame.canvasSize.width - 40,
+          bloc.state.frame.canvasSize.height - 40,
+        );
+        bloc.add(
+          ViewerElementResized(
+            elementId: baseImage.id,
+            size: const Size(320, 260),
+          ),
+        );
+        await _drainQueue();
+
+        bloc.add(
+          ViewerImageAdded(
+            imagePath: extraPath,
+            projectPath: tempDir.path,
+            position: outsideDropPoint,
+          ),
+        );
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final images = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .toList(growable: false);
+        expect(images.length, 2);
+        expect(
+          images.where((image) => image.parentImageId == null).length,
+          2,
+        );
+      },
+    );
+
+    test(
+      'guardar una composicion con subimagen conserva su posicion relativa',
+      () async {
+        final basePath =
+            '${tempDir.path}${Platform.pathSeparator}root_green.jpg';
+        final childPath =
+            '${tempDir.path}${Platform.pathSeparator}child_dark.jpg';
+
+        final green = img.Image(width: 900, height: 600);
+        img.fill(green, color: img.ColorRgb8(180, 255, 0));
+        await File(basePath).writeAsBytes(
+          img.encodeJpg(green, quality: 90),
+          flush: true,
+        );
+
+        final dark = img.Image(width: 300, height: 220);
+        img.fill(dark, color: img.ColorRgb8(24, 28, 36));
+        await File(childPath).writeAsBytes(
+          img.encodeJpg(dark, quality: 90),
+          flush: true,
+        );
+
+        bloc.add(ViewerStarted(imagePath: basePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final root = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        bloc.add(
+          ViewerElementResized(
+            elementId: root.id,
+            size: const Size(900, 600),
+            position: const Offset(100, 80),
+          ),
+        );
+        await _drainQueue();
+
+        bloc.add(
+          ViewerImageAdded(
+            imagePath: childPath,
+            projectPath: tempDir.path,
+            position: const Offset(680, 220),
+          ),
+        );
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final updatedRoot = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.parentImageId == null);
+        final child = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.parentImageId == updatedRoot.id);
+        final expectedRelativeTopLeft =
+            child.frameRect.topLeft - updatedRoot.frameRect.topLeft;
+
+        bloc.add(const ViewerExportRequested());
+        await _waitForAutoSave(bloc);
+
+        final saved = _decodeJpg(basePath);
+        var minX = saved.width;
+        var minY = saved.height;
+        var maxX = -1;
+        var maxY = -1;
+
+        for (var y = 0; y < saved.height; y++) {
+          for (var x = 0; x < saved.width; x++) {
+            final pixel = saved.getPixel(x, y);
+            if (pixel.r < 80 && pixel.g < 90 && pixel.b < 100) {
+              if (x < minX) minX = x;
+              if (y < minY) minY = y;
+              if (x > maxX) maxX = x;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+
+        expect(maxX, greaterThanOrEqualTo(0));
+        expect(minX, closeTo(expectedRelativeTopLeft.dx * 2, 30));
+        expect(minY, closeTo(expectedRelativeTopLeft.dy * 2, 30));
+      },
+    );
+
+    test(
+      'guardar con zoom activo conserva la posicion relativa de la subimagen',
+      () async {
+        final basePath =
+            '${tempDir.path}${Platform.pathSeparator}root_zoom.jpg';
+        final childPath =
+            '${tempDir.path}${Platform.pathSeparator}child_zoom.jpg';
+
+        final green = img.Image(width: 900, height: 600);
+        img.fill(green, color: img.ColorRgb8(180, 255, 0));
+        await File(basePath).writeAsBytes(
+          img.encodeJpg(green, quality: 90),
+          flush: true,
+        );
+
+        final dark = img.Image(width: 300, height: 220);
+        img.fill(dark, color: img.ColorRgb8(24, 28, 36));
+        await File(childPath).writeAsBytes(
+          img.encodeJpg(dark, quality: 90),
+          flush: true,
+        );
+
+        bloc.add(ViewerStarted(imagePath: basePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final root = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        bloc.add(
+          ViewerElementResized(
+            elementId: root.id,
+            size: const Size(900, 600),
+            position: const Offset(100, 80),
+          ),
+        );
+        await _drainQueue();
+
+        bloc.add(const ViewerZoomChanged(1.09));
+        await _drainQueue();
+
+        const visualDropPoint = Offset(680, 220);
+        bloc.add(
+          ViewerImageAdded(
+            imagePath: childPath,
+            projectPath: tempDir.path,
+            position: visualDropPoint,
+          ),
+        );
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final updatedRoot = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.parentImageId == null);
+        final child = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.parentImageId == updatedRoot.id);
+        final expectedRelativeTopLeft =
+            child.frameRect.topLeft - updatedRoot.frameRect.topLeft;
+
+        bloc.add(const ViewerExportRequested());
+        await _waitForAutoSave(bloc);
+
+        final saved = _decodeJpg(basePath);
+        var minX = saved.width;
+        var minY = saved.height;
+        var maxX = -1;
+
+        for (var y = 0; y < saved.height; y++) {
+          for (var x = 0; x < saved.width; x++) {
+            final pixel = saved.getPixel(x, y);
+            if (pixel.r < 80 && pixel.g < 90 && pixel.b < 100) {
+              if (x < minX) minX = x;
+              if (y < minY) minY = y;
+              if (x > maxX) maxX = x;
+            }
+          }
+        }
+
+        expect(maxX, greaterThanOrEqualTo(0));
+        expect(minX, closeTo(expectedRelativeTopLeft.dx * 2, 30));
+        expect(minY, closeTo(expectedRelativeTopLeft.dy * 2, 30));
       },
     );
   });

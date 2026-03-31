@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 /// Tile de miniatura para capturas recientes.
@@ -34,23 +35,44 @@ class RecentStripThumbnailTile extends StatelessWidget {
       onInsert: onInsert,
     );
 
-    return LongPressDraggable<String>(
-      data: path,
-      feedback: Material(
-        color: Colors.transparent,
-        child: SizedBox(
-          width: 140,
-          height: 92,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Image.file(
-              File(path),
-              fit: BoxFit.cover,
-              cacheWidth: 260,
-            ),
+    final feedback = Material(
+      color: Colors.transparent,
+      child: SizedBox(
+        width: 140,
+        height: 92,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.file(
+            File(path),
+            fit: BoxFit.cover,
+            cacheWidth: 260,
           ),
         ),
       ),
+    );
+
+    final useImmediateDrag = switch (defaultTargetPlatform) {
+      TargetPlatform.windows ||
+      TargetPlatform.linux ||
+      TargetPlatform.macOS => true,
+      _ => false,
+    };
+
+    if (useImmediateDrag) {
+      return Draggable<String>(
+        data: path,
+        feedback: feedback,
+        childWhenDragging: Opacity(opacity: 0.35, child: tile),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.grab,
+          child: tile,
+        ),
+      );
+    }
+
+    return LongPressDraggable<String>(
+      data: path,
+      feedback: feedback,
       childWhenDragging: Opacity(opacity: 0.35, child: tile),
       child: tile,
     );

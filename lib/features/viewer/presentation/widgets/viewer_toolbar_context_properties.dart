@@ -71,10 +71,7 @@ class ViewerToolbarContextProperties extends StatelessWidget {
         activeForProperties == AnnotationType.highlighter ||
         activeForProperties == AnnotationType.blur;
     final isColorTool =
-        isTextTool ||
-        isShapeTool ||
-        isPencilTool ||
-        isOpacityTool;
+        isTextTool || isShapeTool || isPencilTool || isOpacityTool;
     final isEraserTool = activeForProperties == AnnotationType.eraser;
 
     if (!isColorTool) {
@@ -88,23 +85,7 @@ class ViewerToolbarContextProperties extends StatelessWidget {
             ),
           ];
         }
-        return [
-          const ViewerToolbarGroupSeparator(),
-          const Text(
-            'Espacio lateral',
-            style: TextStyle(color: Colors.white70, fontSize: 12),
-          ),
-          const SizedBox(width: 8),
-          const Text(
-            'Fijo en negro para delimitar el area real de trabajo',
-            style: TextStyle(color: Colors.white60, fontSize: 12),
-          ),
-          const SizedBox(width: 10),
-          const Text(
-            'Selecciona una captura para editar su frame',
-            style: TextStyle(color: Colors.white54, fontSize: 12),
-          ),
-        ];
+        return const <Widget>[];
       }
       return const <Widget>[];
     }
@@ -246,13 +227,15 @@ class ViewerToolbarContextProperties extends StatelessWidget {
     required int selectedColor,
     required ValueChanged<int> onSelected,
   }) {
-    return colors.map(
-      (color) => ViewerToolbarColorSwatch(
-        color: color,
-        selected: selectedColor == color,
-        onTap: () => onSelected(color),
-      ),
-    ).toList();
+    return colors
+        .map(
+          (color) => ViewerToolbarColorSwatch(
+            color: color,
+            selected: selectedColor == color,
+            onTap: () => onSelected(color),
+          ),
+        )
+        .toList();
   }
 
   List<Widget> _buildImageProperties(
@@ -382,7 +365,6 @@ class ViewerToolbarContextProperties extends StatelessWidget {
     0xFFEDE7F6,
     0x00000000,
   ];
-
 }
 
 class _ViewerAdvancedColorButton extends StatefulWidget {

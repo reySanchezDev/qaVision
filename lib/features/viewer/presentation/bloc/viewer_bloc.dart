@@ -17,6 +17,7 @@ import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
 import 'package:qavision/features/viewer/domain/entities/viewer_image_frame_defaults.dart';
 import 'package:qavision/features/viewer/domain/services/image_frame_component_service.dart';
 import 'package:qavision/features/viewer/domain/services/viewer_document_graph_service.dart';
+import 'package:qavision/features/viewer/domain/services/viewer_image_insertion_service.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_state.dart';
 import 'package:qavision/features/viewer/presentation/utils/viewer_composition_helper.dart';
@@ -64,9 +65,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     on<ViewerExportRequested>(_onExportRequested);
     on<ViewerCopyRequested>(_onCopyRequested);
     on<ViewerShareRequested>(_onShareRequested);
-    if (_autoSaveEnabled) {
-      on<ViewerAutoSaveRequested>(_onAutoSaveRequested);
-    }
+    on<ViewerAutoSaveRequested>(_onAutoSaveRequested);
   }
 
   final FileSystemService _fileSystemService;
@@ -74,7 +73,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
   final ShareService _shareService;
   final ViewerDocumentPersistenceService _documentPersistenceService;
   static const _uuid = Uuid();
-  static const bool _autoSaveEnabled = false;
+  static const bool _autoSaveEnabled = true;
   static const int _defaultFrameBackgroundColor = 0xFFFFFFFF;
   static const double _defaultFrameBackgroundOpacity = 1;
   static const int _defaultFrameBorderColor = 0x33000000;
@@ -84,6 +83,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
   Timer? _autoSaveTimer;
   bool _autoSaveInProgress = false;
   bool _autoSaveQueued = false;
+  bool _hasPendingRecoveryDraft = false;
   FrameState? _drawingStartFrame;
   FrameState? _interactionStartFrame;
   String? _activeImagePath;
@@ -141,11 +141,14 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       _projectPath = io.File(event.imagePath).parent.path;
       final defaults = _resolveDefaultsFromStart(event);
 
+      final loadResult = await _documentPersistenceService
+          .loadFrameResultForImage(
+            imagePath: event.imagePath,
+            defaults: defaults,
+          );
       final loadedFrame = _constrainImagesToCanvas(
-        await _documentPersistenceService.loadFrameForImage(
-          imagePath: event.imagePath,
-          defaults: defaults,
-        ),
+        loadResult.frame,
+        zoom: 1,
       );
       final selectedImageId = loadedFrame.elements
           .whereType<ImageFrameComponent>()
@@ -173,9 +176,11 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
           recentProjectPath: _projectPath,
           isLoading: false,
           clearAutoSavePath: true,
+          recoveredSession: loadResult.recoveredFromDraft,
           clearErrorMessage: true,
         ),
       );
+      _hasPendingRecoveryDraft = loadResult.recoveredFromDraft;
     } on Exception catch (e) {
       emit(
         state.copyWith(
@@ -225,6 +230,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
             activeTextSize: event.textSize ?? state.activeTextSize,
             activeOpacity: event.opacity ?? state.activeOpacity,
             selectedElementId: selectedId,
+            clearRecoveredSession: true,
           ),
         );
         _scheduleAutoSave();
@@ -261,7 +267,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     final resizedFrame = state.frame.copyWith(canvasSize: Size(width, height));
     final constrainedFrame = _constrainImagesToCanvas(
       resizedFrame,
-      zoom: state.canvasZoom,
+      zoom: 1,
     );
     emit(
       state.copyWith(
@@ -319,6 +325,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
           attachedImageId: attachedImageId,
           coordinateSpace: coordinateSpace,
           canvasPoint: event.position,
+          imageZoom: state.canvasZoom,
         ),
         text: '${counter + 1}',
         attachedImageId: attachedImageId,
@@ -352,12 +359,14 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         attachedImageId: attachedImageId,
         coordinateSpace: coordinateSpace,
         canvasPoint: event.position,
+        imageZoom: state.canvasZoom,
       ),
       endPosition: _storeAnnotationPoint(
         state.frame.elements,
         attachedImageId: attachedImageId,
         coordinateSpace: coordinateSpace,
         canvasPoint: event.position,
+        imageZoom: state.canvasZoom,
       ),
       points: [
         _storeAnnotationPoint(
@@ -365,6 +374,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
           attachedImageId: attachedImageId,
           coordinateSpace: coordinateSpace,
           canvasPoint: event.position,
+          imageZoom: state.canvasZoom,
         ),
       ],
       attachedImageId: attachedImageId,
@@ -405,6 +415,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
             attachedImageId: last.attachedImageId,
             coordinateSpace: last.coordinateSpace,
             canvasPoint: event.position,
+            imageZoom: state.canvasZoom,
           ),
         ],
       );
@@ -415,6 +426,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
           attachedImageId: last.attachedImageId,
           coordinateSpace: last.coordinateSpace,
           canvasPoint: event.position,
+          imageZoom: state.canvasZoom,
         ),
       );
     }
@@ -466,6 +478,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         attachedImageId: attachedImageId,
         coordinateSpace: coordinateSpace,
         canvasPoint: event.position,
+        imageZoom: state.canvasZoom,
       ),
       text: text,
       attachedImageId: attachedImageId,
@@ -494,32 +507,20 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       final defaults = _resolveDefaultsFromInsert(event);
       final image = await _loadImage(event.imagePath);
       final rawSize = Size(image.width.toDouble(), image.height.toDouble());
-      final insertionParent = _resolveInsertionParentImage(state.frame);
-      final movementBounds = _movementBoundsForNewImage(
+      final insertionPlan = ViewerImageInsertionService.plan(
         frame: state.frame,
-        parent: insertionParent,
+        rawImageSize: rawSize,
+        selectedElementId: state.selectedElementId,
+        dropPoint: event.position,
+        displayZoom: state.canvasZoom,
       );
-      final availableWorkspaceSize = Size(
-        movementBounds.width / state.canvasZoom,
-        movementBounds.height / state.canvasZoom,
-      );
-      final fittedSize = ImageFrameComponentService.fitImageInsideFrame(
-        rawSize,
-        availableWorkspaceSize,
-      );
-      final proposedPosition =
-          event.position ??
-          Offset(
-            movementBounds.left + 24.0 * _countNestedImages(state.frame),
-            movementBounds.top + 24.0 * _countNestedImages(state.frame),
-          );
       final added = ImageFrameComponentService.constrainToCanvas(
         component: ImageFrameComponent(
           id: _uuid.v4(),
-          position: proposedPosition,
+          position: insertionPlan.position,
           zIndex: _nextZ(state.frame.elements),
           path: event.imagePath,
-          contentSize: fittedSize,
+          contentSize: insertionPlan.fittedSize,
           style: ImageFrameStyle(
             backgroundColor: defaults.backgroundColor,
             backgroundOpacity: defaults.backgroundOpacity,
@@ -528,15 +529,17 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
             padding: defaults.padding,
           ),
           transform: ImageFrameTransform(
-            position: proposedPosition,
-            size: fittedSize,
+            position: insertionPlan.position,
+            size: insertionPlan.fittedSize,
           ),
           image: image,
-          parentImageId: insertionParent?.id,
+          parentImageId: insertionPlan.parentImageId,
         ),
         frameSize: state.frame.canvasSize,
-        movementBounds: movementBounds,
-        displayScale: state.canvasZoom,
+        movementBounds: insertionPlan.movementBounds,
+        displayScale: insertionPlan.parentImageId == null
+            ? state.canvasZoom
+            : 1,
       );
       final elements = List<CanvasElement>.from(state.frame.elements)
         ..add(added);
@@ -588,11 +591,11 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         position: _centerPositionForSize(
           selected.size,
           workspaceRect,
-          displayScale: state.canvasZoom,
+          displayScale: _displayScaleForImage(selected),
         ),
         frameSize: state.frame.canvasSize,
         movementBounds: workspaceRect,
-        displayScale: state.canvasZoom,
+        displayScale: _displayScaleForImage(selected),
       );
       final delta = centeredComponent.position - selected.position;
       if (delta != Offset.zero) {
@@ -606,7 +609,6 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
           elements,
           parentId: selected.id,
           canvasSize: state.frame.canvasSize,
-          zoom: state.canvasZoom,
         );
         emit(
           state.copyWith(
@@ -641,7 +643,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         position: event.position,
         frameSize: state.frame.canvasSize,
         movementBounds: movementBounds,
-        displayScale: state.canvasZoom,
+        displayScale: _displayScaleForImage(element),
       );
       final delta = movedComponent.position - element.position;
       elements[index] = movedComponent;
@@ -656,7 +658,6 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
           elements,
           parentId: element.id,
           canvasSize: state.frame.canvasSize,
-          zoom: state.canvasZoom,
         );
       }
     } else if (element is AnnotationElement) {
@@ -671,6 +672,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       final projected = _projectAnnotationForDisplay(
         elements,
         element,
+        imageZoom: state.canvasZoom,
       );
       final delta = clampedPosition - projected.position;
       final movedProjected = projected.copyWith(
@@ -686,6 +688,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         elements,
         source: element,
         projected: movedProjected,
+        imageZoom: state.canvasZoom,
       );
     }
 
@@ -735,28 +738,19 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         position: event.position,
         frameSize: state.frame.canvasSize,
         movementBounds: movementBounds,
-        displayScale: state.canvasZoom,
+        displayScale: _displayScaleForImage(element),
       );
-      final delta = resizedComponent.position - element.position;
       elements[index] = resizedComponent;
-
-      if (delta != Offset.zero) {
-        _translateImageDependents(
-          elements,
-          imageId: element.id,
-          delta: delta,
-        );
-      }
       _constrainImageChildren(
         elements,
         parentId: element.id,
         canvasSize: state.frame.canvasSize,
-        zoom: state.canvasZoom,
       );
     } else if (element is AnnotationElement) {
       final projected = _projectAnnotationForDisplay(
         elements,
         element,
+        imageZoom: state.canvasZoom,
       );
       if (element.type == AnnotationType.text ||
           element.type == AnnotationType.commentBubble) {
@@ -786,6 +780,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
             points: transformed,
             clearEndPosition: true,
           ),
+          imageZoom: state.canvasZoom,
         );
       } else {
         elements[index] = _storeProjectedAnnotation(
@@ -794,6 +789,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
           projected: projected.copyWith(
             endPosition: projected.position + Offset(width, height),
           ),
+          imageZoom: state.canvasZoom,
         );
       }
     } else {
@@ -926,6 +922,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       state.copyWith(
         undoStack: undoStack,
         redoStack: const [],
+        clearRecoveredSession: true,
       ),
     );
     _scheduleAutoSave();
@@ -943,6 +940,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         undoStack: undoStack,
         redoStack: redoStack,
         clearSelectedElement: true,
+        clearRecoveredSession: true,
       ),
     );
     _scheduleAutoSave();
@@ -960,6 +958,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         undoStack: undoStack,
         redoStack: redoStack,
         clearSelectedElement: true,
+        clearRecoveredSession: true,
       ),
     );
     _scheduleAutoSave();
@@ -1085,7 +1084,6 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       elements,
       parentId: selectedId,
       canvasSize: state.frame.canvasSize,
-      zoom: state.canvasZoom,
     );
 
     _commitFrame(
@@ -1151,13 +1149,33 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     Emitter<ViewerState> emit,
   ) async {
     if (!_autoSaveEnabled) return;
+    final activeImagePath = _activeImagePath;
+    if (activeImagePath == null || activeImagePath.isEmpty) return;
     if (_autoSaveInProgress) {
       _autoSaveQueued = true;
       return;
     }
     _autoSaveInProgress = true;
-
-    await _saveComposition(emit, forceRefreshRecent: false);
+    emit(state.copyWith(isAutoSaving: true, clearErrorMessage: true));
+    try {
+      await _documentPersistenceService.saveRecoveryDraft(
+        imagePath: activeImagePath,
+        frame: state.frame,
+      );
+      _hasPendingRecoveryDraft = true;
+      emit(
+        state.copyWith(
+          isAutoSaving: false,
+        ),
+      );
+    } on Exception catch (e) {
+      emit(
+        state.copyWith(
+          isAutoSaving: false,
+          errorMessage: 'Error al guardar borrador: $e',
+        ),
+      );
+    }
 
     _autoSaveInProgress = false;
     if (_autoSaveQueued && !isClosed) {
@@ -1192,6 +1210,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         redoStack: redoStack,
         selectedElementId: selectedElementId,
         clearSelectedElement: clearSelectedElement,
+        clearRecoveredSession: true,
         isDrawing: isDrawing,
         isLoading: isLoading,
         activeTool: activeTool,
@@ -1204,6 +1223,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
   void _scheduleAutoSave({bool immediate = false}) {
     _autoSaveTimer?.cancel();
     if (!_autoSaveEnabled) return;
+    _hasPendingRecoveryDraft = true;
     _autoSaveTimer = Timer(
       immediate ? Duration.zero : const Duration(milliseconds: 280),
       () {
@@ -1227,7 +1247,13 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       frame: state.frame,
     );
 
-    emit(state.copyWith(isAutoSaving: true, clearErrorMessage: true));
+    emit(
+      state.copyWith(
+        isAutoSaving: true,
+        clearErrorMessage: true,
+        clearAutoSavePath: true,
+      ),
+    );
     try {
       final bytes = await _generateCompositionBytes(
         state.frame,
@@ -1251,6 +1277,10 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
           frame: state.frame,
         );
       }
+      await _documentPersistenceService.clearRecoveryDraft(
+        imagePath: activeImagePath,
+      );
+      _hasPendingRecoveryDraft = false;
 
       List<String>? recent;
       if (forceRefreshRecent) {
@@ -1268,6 +1298,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
           autoSavePath: savedPath,
           recentProjectPath: state.recentProjectPath ?? _projectPath,
           recentCaptures: recent ?? state.recentCaptures,
+          clearRecoveredSession: true,
         ),
       );
     } on Exception catch (e) {
@@ -1294,6 +1325,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     required String? attachedImageId,
     required AnnotationCoordinateSpace coordinateSpace,
     required Offset canvasPoint,
+    double imageZoom = 1,
   }) {
     if (coordinateSpace != AnnotationCoordinateSpace.imageContent ||
         attachedImageId == null ||
@@ -1309,7 +1341,8 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     return ViewerCompositionHelper.canvasPointToImageContent(
       attachedImage,
       canvasPoint,
-      imageZoom: state.canvasZoom,
+      elements: elements,
+      imageZoom: imageZoom,
     );
   }
 
@@ -1321,7 +1354,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     return ViewerCompositionHelper.projectAnnotation(
       elements,
       annotation,
-      imageZoom: imageZoom ?? state.canvasZoom,
+      imageZoom: imageZoom ?? 1,
     );
   }
 
@@ -1329,6 +1362,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     List<CanvasElement> elements, {
     required AnnotationElement source,
     required AnnotationElement projected,
+    double imageZoom = 1,
   }) {
     if (source.coordinateSpace != AnnotationCoordinateSpace.imageContent ||
         source.attachedImageId == null ||
@@ -1351,21 +1385,24 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       position: ViewerCompositionHelper.canvasPointToImageContent(
         attachedImage,
         projected.position,
-        imageZoom: state.canvasZoom,
+        elements: elements,
+        imageZoom: imageZoom,
       ),
       endPosition: projected.endPosition == null
           ? null
           : ViewerCompositionHelper.canvasPointToImageContent(
               attachedImage,
               projected.endPosition!,
-              imageZoom: state.canvasZoom,
+              elements: elements,
+              imageZoom: imageZoom,
             ),
       points: projected.points
           .map(
             (point) => ViewerCompositionHelper.canvasPointToImageContent(
               attachedImage,
               point,
-              imageZoom: state.canvasZoom,
+              elements: elements,
+              imageZoom: imageZoom,
             ),
           )
           .toList(growable: false),
@@ -1388,36 +1425,6 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     )?.id;
   }
 
-  ImageFrameComponent? _resolveInsertionParentImage(FrameState frame) {
-    final selectedId = state.selectedElementId;
-    if (selectedId == null || selectedId.isEmpty) {
-      return null;
-    }
-
-    final document = ViewerDocumentGraphService.build(frame);
-    final selected = document.elementById(selectedId);
-    if (selected is ImageFrameComponent) {
-      return selected;
-    }
-    if (selected is AnnotationElement && selected.attachedImageId != null) {
-      return document.imageById(selected.attachedImageId!);
-    }
-    return null;
-  }
-
-  int _countNestedImages(FrameState frame) {
-    final parent = _resolveInsertionParentImage(frame);
-    final document = ViewerDocumentGraphService.build(frame);
-    if (parent == null) {
-      return document.orderedImages().length;
-    }
-    return document.nodeById(parent.id)?.childIds
-            .map(document.imageById)
-            .whereType<ImageFrameComponent>()
-            .length ??
-        0;
-  }
-
   ImageFrameComponent? _findImageById(
     List<CanvasElement> elements,
     String imageId,
@@ -1425,16 +1432,6 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     return ViewerDocumentGraphService.build(
       state.frame.copyWith(elements: elements),
     ).imageById(imageId);
-  }
-
-  Rect _movementBoundsForNewImage({
-    required FrameState frame,
-    required ImageFrameComponent? parent,
-  }) {
-    if (parent == null) {
-      return _workspaceRectForCanvas(frame.canvasSize);
-    }
-    return parent.contentViewportRect;
   }
 
   Rect _movementBoundsForImage(
@@ -1459,8 +1456,14 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       return _workspaceRectForCanvas(state.frame.canvasSize);
     }
     final parent = _findImageById(elements, attachedId);
-    return parent?.frameRect ??
-        _workspaceRectForCanvas(state.frame.canvasSize);
+    if (parent == null) {
+      return _workspaceRectForCanvas(state.frame.canvasSize);
+    }
+    return ViewerCompositionHelper.imageContentViewportRect(
+      parent,
+      elements: elements,
+      imageZoom: state.canvasZoom,
+    );
   }
 
   Offset _clampPointToBounds(Offset point, Rect bounds) {
@@ -1505,7 +1508,6 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     List<CanvasElement> elements, {
     required String parentId,
     required Size canvasSize,
-    required double zoom,
   }) {
     final parent = _findImageById(elements, parentId);
     if (parent == null) return;
@@ -1522,7 +1524,6 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         component: candidate,
         frameSize: canvasSize,
         movementBounds: movementBounds,
-        displayScale: zoom,
       );
       final delta = constrained.position - candidate.position;
       elements[i] = constrained;
@@ -1537,7 +1538,6 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         elements,
         parentId: candidate.id,
         canvasSize: canvasSize,
-        zoom: zoom,
       );
     }
   }
@@ -1574,7 +1574,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
 
   FrameState _constrainImagesToCanvas(FrameState frame, {double? zoom}) {
     final elements = List<CanvasElement>.from(frame.elements);
-    final displayScale = zoom ?? state.canvasZoom;
+    final displayScale = zoom ?? 1.0;
     final rootImages = elements
         .whereType<ImageFrameComponent>()
         .where((image) => image.parentImageId == null)
@@ -1602,7 +1602,6 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         elements,
         parentId: root.id,
         canvasSize: frame.canvasSize,
-        zoom: displayScale,
       );
     }
 
@@ -1611,6 +1610,17 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
 
   Rect _workspaceRectForCanvas(Size canvasSize) {
     return ViewerWorkspaceLayout.resolve(canvasSize);
+  }
+
+  double _displayScaleForImage(ImageFrameComponent image) {
+    final parentId = image.parentImageId;
+    // Solo el frame raiz se limita usando su tamano visible bajo zoom.
+    // Las subimagenes ya viven dentro del viewport logico del padre y si se
+    // les aplicara tambien el zoom aqui, el espacio util se encogería otra vez.
+    if (parentId == null || parentId.isEmpty) {
+      return state.canvasZoom;
+    }
+    return 1;
   }
 
   Offset _centerPositionForSize(
@@ -1776,8 +1786,23 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
   }
 
   @override
-  Future<void> close() {
+  Future<void> close() async {
     _autoSaveTimer?.cancel();
+    final activeImagePath = _activeImagePath;
+    if (_autoSaveEnabled &&
+        _hasPendingRecoveryDraft &&
+        activeImagePath != null &&
+        activeImagePath.isNotEmpty &&
+        state.frame.elements.isNotEmpty) {
+      try {
+        await _documentPersistenceService.saveRecoveryDraft(
+          imagePath: activeImagePath,
+          frame: state.frame,
+        );
+      } on Exception {
+        // Evitamos fallar el cierre por un problema de persistencia del draft.
+      }
+    }
     // Evita disposal durante guardado async para no invalidar ui.Image activas.
     return super.close();
   }

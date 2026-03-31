@@ -25,11 +25,12 @@ class ViewerCanvasDropTarget extends StatelessWidget {
         final renderObject = context.findRenderObject();
         if (renderObject is! RenderBox) return;
 
+        final bloc = context.read<ViewerBloc>();
         final local = renderObject.globalToLocal(details.offset);
         final imagePath = details.data.trim();
         if (imagePath.isEmpty) return;
 
-        context.read<ViewerBloc>().add(
+        bloc.add(
           ViewerImageAdded(
             imagePath: imagePath,
             projectPath: File(imagePath).parent.path,

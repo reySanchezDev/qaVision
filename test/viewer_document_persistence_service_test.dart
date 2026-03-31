@@ -117,5 +117,61 @@ void main() {
       expect(raw.contains('"version":3'), isTrue);
       expect(raw.contains('"documentKind":"viewer_editable_document"'), isTrue);
     });
+
+    test('recupera borrador cuando es mas nuevo que el sidecar', () async {
+      final imagePath = await _writeTestJpg(
+        '${tempDir.path}${Platform.pathSeparator}recover.jpg',
+      );
+
+      const defaults = ViewerImageFrameDefaults(
+        backgroundColor: 0xFFFFFFFF,
+        backgroundOpacity: 1,
+        borderColor: 0x00000000,
+        borderWidth: 0,
+        padding: 0,
+      );
+
+      final frame = await service.loadFrameForImage(
+        imagePath: imagePath,
+        defaults: defaults,
+      );
+      await service.saveEditableFrame(
+        imagePath: imagePath,
+        frame: frame,
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      final mutated = frame.copyWith(
+        elements: [
+          ...(frame.elements),
+          const AnnotationElement(
+            id: 'draft-note',
+            type: AnnotationType.text,
+            color: 0xFFE53935,
+            strokeWidth: 2,
+            textSize: 18,
+            position: Offset(220, 180),
+            text: 'draft',
+            zIndex: 99,
+          ),
+        ],
+      );
+      await service.saveRecoveryDraft(
+        imagePath: imagePath,
+        frame: mutated,
+      );
+
+      final result = await service.loadFrameResultForImage(
+        imagePath: imagePath,
+        defaults: defaults,
+      );
+
+      expect(result.recoveredFromDraft, isTrue);
+      expect(
+        result.frame.elements.any((element) => element.id == 'draft-note'),
+        isTrue,
+      );
+    });
   });
 }

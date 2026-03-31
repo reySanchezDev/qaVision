@@ -78,6 +78,7 @@ class ViewerDocumentGraphService {
         in document.orderedImages(frontToBack: true)) {
       final bounds = ViewerCompositionHelper.imageFrameRect(
         image,
+        elements: document.frame.elements,
         imageZoom: imageZoom,
       );
       if (bounds.contains(point)) {
@@ -98,6 +99,7 @@ class ViewerDocumentGraphService {
       if (element is ImageFrameComponent) {
         final bounds = ViewerCompositionHelper.imageFrameRect(
           element,
+          elements: document.frame.elements,
           imageZoom: imageZoom,
         );
         if (bounds.contains(point)) {
@@ -174,6 +176,7 @@ class ViewerDocumentGraphService {
       if (target != null) {
         var exportRect = ViewerCompositionHelper.imageFrameRect(
           target,
+          elements: elements,
           imageZoom: imageZoom,
         );
         final subtreeIds = <String>{
@@ -185,6 +188,7 @@ class ViewerDocumentGraphService {
           exportRect = exportRect.expandToInclude(
             ViewerCompositionHelper.imageFrameRect(
               image,
+              elements: elements,
               imageZoom: imageZoom,
             ),
           );

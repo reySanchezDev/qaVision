@@ -21,6 +21,7 @@ class ViewerState extends Equatable {
     this.recentProjectPath,
     this.selectedElementId,
     this.autoSavePath,
+    this.recoveredSession = false,
     this.errorMessage,
   });
 
@@ -72,6 +73,9 @@ class ViewerState extends Equatable {
   /// Current autosave output path.
   final String? autoSavePath;
 
+  /// `true` cuando el visor reabre una sesion desde borrador de recuperación.
+  final bool recoveredSession;
+
   /// Last user-facing error.
   final String? errorMessage;
 
@@ -99,6 +103,8 @@ class ViewerState extends Equatable {
     bool clearSelectedElement = false,
     String? autoSavePath,
     bool clearAutoSavePath = false,
+    bool? recoveredSession,
+    bool clearRecoveredSession = false,
     String? errorMessage,
     bool clearErrorMessage = false,
   }) {
@@ -125,6 +131,9 @@ class ViewerState extends Equatable {
       autoSavePath: clearAutoSavePath
           ? null
           : (autoSavePath ?? this.autoSavePath),
+      recoveredSession: clearRecoveredSession
+          ? const ViewerState().recoveredSession
+          : (recoveredSession ?? this.recoveredSession),
       errorMessage: clearErrorMessage
           ? null
           : (errorMessage ?? this.errorMessage),
@@ -149,6 +158,7 @@ class ViewerState extends Equatable {
     recentProjectPath,
     selectedElementId,
     autoSavePath,
+    recoveredSession,
     errorMessage,
   ];
 }

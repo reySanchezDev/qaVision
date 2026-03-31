@@ -53,6 +53,7 @@ class ViewerCompositionHelper {
       if (element is ImageFrameComponent) {
         _drawImage(
           canvas,
+          frame.elements,
           element,
           forExport: forExport,
           displayScale: forExport ? 1 : contentZoom,
@@ -75,7 +76,11 @@ class ViewerCompositionHelper {
     double imageZoom = 1,
   }) {
     if (element is ImageFrameComponent) {
-      return imageFrameRect(element, imageZoom: imageZoom);
+      return imageFrameRect(
+        element,
+        elements: elements,
+        imageZoom: imageZoom,
+      );
     }
 
     if (element is AnnotationElement) {
@@ -90,11 +95,42 @@ class ViewerCompositionHelper {
   }
 
   /// Outer frame rect for an image element.
+  ///
+  /// Regla importante del visor:
+  /// - una imagen raiz conserva su top-left logico dentro del workspace
+  /// - una subimagen se proyecta relativa al viewport interno del padre
+  ///
+  /// Esto evita dos regresiones clave:
+  /// - que el workspace parezca "encogerse" cuando baja el zoom
+  /// - que las subimagenes se despeguen visualmente de su frame padre
   static Rect imageFrameRect(
     ImageFrameComponent element, {
+    List<CanvasElement>? elements,
     double imageZoom = 1,
   }) {
     final scale = imageZoom.clamp(0.1, 10.0);
+    final parentId = element.parentImageId;
+    if (elements != null && parentId != null && parentId.isNotEmpty) {
+      final parent = elements.whereType<ImageFrameComponent>().firstWhere(
+        (candidate) => candidate.id == parentId,
+        orElse: () => element,
+      );
+      if (parent.id != element.id) {
+        final parentViewport = imageContentViewportRect(
+          parent,
+          elements: elements,
+          imageZoom: scale,
+        );
+        final logicalParentViewport = parent.contentViewportRect;
+        final localOffset = element.position - logicalParentViewport.topLeft;
+        return Rect.fromLTWH(
+          parentViewport.left + (localOffset.dx * scale),
+          parentViewport.top + (localOffset.dy * scale),
+          element.size.width * scale,
+          element.size.height * scale,
+        );
+      }
+    }
     return Rect.fromLTWH(
       element.position.dx,
       element.position.dy,
@@ -106,15 +142,81 @@ class ViewerCompositionHelper {
   /// Effective inner viewport rect where image content is clipped.
   static Rect imageContentViewportRect(
     ImageFrameComponent element, {
+    List<CanvasElement>? elements,
     double imageZoom = 1,
   }) {
-    final frameRect = imageFrameRect(element, imageZoom: imageZoom);
+    final frameRect = imageFrameRect(
+      element,
+      elements: elements,
+      imageZoom: imageZoom,
+    );
     final padding = element.clampedPadding * imageZoom.clamp(0.1, 10.0);
     return Rect.fromLTWH(
       frameRect.left + padding,
       frameRect.top + padding,
       math.max(1, frameRect.width - (padding * 2)),
       math.max(1, frameRect.height - (padding * 2)),
+    );
+  }
+
+  /// Convierte el top-left visible de un frame a su posicion logica.
+  ///
+  /// Para frames raiz la conversion es identidad. Para subimagenes se revierte
+  /// la proyeccion relativa al viewport del padre, de modo que drag/resize en
+  /// pantalla vuelvan a almacenarse en coordenadas logicas consistentes.
+  static Offset logicalFrameTopLeftFromDisplayTopLeft({
+    required Offset displayTopLeft,
+    required String? parentImageId,
+    required List<CanvasElement> elements,
+    double imageZoom = 1,
+  }) {
+    final scale = imageZoom.clamp(0.1, 10.0);
+    if (parentImageId == null || parentImageId.isEmpty) {
+      return displayTopLeft;
+    }
+
+    ImageFrameComponent? parent;
+    for (final candidate in elements.whereType<ImageFrameComponent>()) {
+      if (candidate.id == parentImageId) {
+        parent = candidate;
+        break;
+      }
+    }
+    if (parent == null) {
+      return displayTopLeft;
+    }
+    final projectedParentViewport = imageContentViewportRect(
+      parent,
+      elements: elements,
+      imageZoom: scale,
+    );
+    final logicalParentViewport = parent.contentViewportRect;
+    final projectedOffset = displayTopLeft - projectedParentViewport.topLeft;
+    return Offset(
+      logicalParentViewport.left + (projectedOffset.dx / scale),
+      logicalParentViewport.top + (projectedOffset.dy / scale),
+    );
+  }
+
+  /// Convierte un rectangulo visible de un frame a su rectangulo logico.
+  static Rect logicalFrameRectFromDisplayRect({
+    required Rect displayRect,
+    required String? parentImageId,
+    required List<CanvasElement> elements,
+    double imageZoom = 1,
+  }) {
+    final scale = imageZoom.clamp(0.1, 10.0);
+    final logicalTopLeft = logicalFrameTopLeftFromDisplayTopLeft(
+      displayTopLeft: displayRect.topLeft,
+      parentImageId: parentImageId,
+      elements: elements,
+      imageZoom: scale,
+    );
+    return Rect.fromLTWH(
+      logicalTopLeft.dx,
+      logicalTopLeft.dy,
+      displayRect.width / scale,
+      displayRect.height / scale,
     );
   }
 
@@ -129,10 +231,15 @@ class ViewerCompositionHelper {
   /// Draw rect for image content inside its frame viewport.
   static Rect imageDrawRect(
     ImageFrameComponent element, {
+    List<CanvasElement>? elements,
     double imageZoom = 1,
   }) {
     final scale = imageZoom.clamp(0.1, 10.0);
-    final viewport = imageContentViewportRect(element, imageZoom: scale);
+    final viewport = imageContentViewportRect(
+      element,
+      elements: elements,
+      imageZoom: scale,
+    );
     final boundedOffset = element.clampContentOffset(element.contentOffset);
     return Rect.fromLTWH(
       viewport.left + boundedOffset.dx * scale,
@@ -164,10 +271,15 @@ class ViewerCompositionHelper {
   static Offset canvasPointToImageContent(
     ImageFrameComponent image,
     Offset canvasPoint, {
+    List<CanvasElement>? elements,
     double imageZoom = 1,
   }) {
     final scale = imageZoom.clamp(0.1, 10.0);
-    final drawRect = imageDrawRect(image, imageZoom: scale);
+    final drawRect = imageDrawRect(
+      image,
+      elements: elements,
+      imageZoom: scale,
+    );
     return Offset(
       (canvasPoint.dx - drawRect.left) / scale,
       (canvasPoint.dy - drawRect.top) / scale,
@@ -178,10 +290,15 @@ class ViewerCompositionHelper {
   static Offset imageContentPointToCanvas(
     ImageFrameComponent image,
     Offset imageContentPoint, {
+    List<CanvasElement>? elements,
     double imageZoom = 1,
   }) {
     final scale = imageZoom.clamp(0.1, 10.0);
-    final drawRect = imageDrawRect(image, imageZoom: scale);
+    final drawRect = imageDrawRect(
+      image,
+      elements: elements,
+      imageZoom: scale,
+    );
     return Offset(
       drawRect.left + (imageContentPoint.dx * scale),
       drawRect.top + (imageContentPoint.dy * scale),
@@ -209,6 +326,7 @@ class ViewerCompositionHelper {
       position: imageContentPointToCanvas(
         attachedImage,
         element.position,
+        elements: elements,
         imageZoom: imageZoom,
       ),
       endPosition: element.endPosition == null
@@ -216,6 +334,7 @@ class ViewerCompositionHelper {
           : imageContentPointToCanvas(
               attachedImage,
               element.endPosition!,
+              elements: elements,
               imageZoom: imageZoom,
             ),
       points: element.points
@@ -223,6 +342,7 @@ class ViewerCompositionHelper {
             (point) => imageContentPointToCanvas(
               attachedImage,
               point,
+              elements: elements,
               imageZoom: imageZoom,
             ),
           )
@@ -299,13 +419,19 @@ class ViewerCompositionHelper {
 
   static void _drawImage(
     ui.Canvas canvas,
+    List<CanvasElement> elements,
     ImageFrameComponent component, {
     required bool forExport,
     required double displayScale,
   }) {
-    final frameRect = imageFrameRect(component, imageZoom: displayScale);
+    final frameRect = imageFrameRect(
+      component,
+      elements: elements,
+      imageZoom: displayScale,
+    );
     final contentRect = imageContentViewportRect(
       component,
+      elements: elements,
       imageZoom: displayScale,
     );
     final rawBackgroundOpacity = component.style.backgroundOpacity.clamp(
@@ -338,7 +464,11 @@ class ViewerCompositionHelper {
 
     if (component.image is ui.Image) {
       final uiImage = component.image as ui.Image;
-      final drawRect = imageDrawRect(component, imageZoom: displayScale);
+      final drawRect = imageDrawRect(
+        component,
+        elements: elements,
+        imageZoom: displayScale,
+      );
       canvas.drawImageRect(
         uiImage,
         Rect.fromLTWH(
@@ -364,7 +494,7 @@ class ViewerCompositionHelper {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = component.style.borderWidth
-        ..color = Color(component.style.borderColor),
+          ..color = Color(component.style.borderColor),
       );
     }
   }

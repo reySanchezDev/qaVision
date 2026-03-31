@@ -39,6 +39,21 @@ class ViewerDocumentSavePlan {
   final String outputPathWithoutExtension;
 }
 
+/// Resultado de carga del documento del visor.
+class ViewerDocumentLoadResult {
+  /// Crea un resultado de carga.
+  const ViewerDocumentLoadResult({
+    required this.frame,
+    required this.recoveredFromDraft,
+  });
+
+  /// Frame final listo para el visor.
+  final FrameState frame;
+
+  /// `true` si el frame provino de un borrador de recuperación.
+  final bool recoveredFromDraft;
+}
+
 /// Servicio responsable de cargar y persistir documentos editables del visor.
 ///
 /// Esta pieza separa la fuente editable (`sidecar`) del resultado aplanado
@@ -57,43 +72,57 @@ class ViewerDocumentPersistenceService {
     required String imagePath,
     required ViewerImageFrameDefaults defaults,
   }) async {
-    final newSidecarPath = sidecarPathForImage(imagePath);
-    final oldSidecarPath = '$imagePath.qav.json';
+    final result = await loadFrameResultForImage(
+      imagePath: imagePath,
+      defaults: defaults,
+    );
+    return result.frame;
+  }
 
-    var sidecarFile = io.File(newSidecarPath);
-    if (!sidecarFile.existsSync()) {
-      final oldFile = io.File(oldSidecarPath);
-      if (oldFile.existsSync()) {
-        try {
-          await sidecarFile.parent.create(recursive: true);
-          await oldFile.rename(newSidecarPath);
-          sidecarFile = io.File(newSidecarPath);
-        } on Object {
-          sidecarFile = oldFile;
-        }
-      } else {
-        return buildDefaultFrame(imagePath, defaults: defaults);
-      }
-    }
+  /// Carga el documento del visor resolviendo sidecar oficial + draft.
+  Future<ViewerDocumentLoadResult> loadFrameResultForImage({
+    required String imagePath,
+    required ViewerImageFrameDefaults defaults,
+  }) async {
+    final sidecarFile = await _resolveSidecarFile(imagePath);
+    final draftFile = io.File(recoveryDraftPathForImage(imagePath));
 
-    try {
-      final raw = await sidecarFile.readAsString();
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) {
-        return buildDefaultFrame(imagePath, defaults: defaults);
-      }
-      final parsed = await _parseFrameFromJson(
-        decoded,
-        fallbackImagePath: imagePath,
-        defaults: defaults,
+    final sidecarFrame = await _tryLoadFrameFromFile(
+      sidecarFile,
+      fallbackImagePath: imagePath,
+      defaults: defaults,
+    );
+    final draftFrame = await _tryLoadFrameFromFile(
+      draftFile,
+      fallbackImagePath: imagePath,
+      defaults: defaults,
+    );
+
+    final shouldUseDraft =
+        draftFrame != null &&
+        (sidecarFrame == null ||
+            !sidecarFile.existsSync() ||
+            (draftFile.existsSync() &&
+                !draftFile.lastModifiedSync().isBefore(
+                  sidecarFile.lastModifiedSync(),
+                )));
+    if (shouldUseDraft) {
+      return ViewerDocumentLoadResult(
+        frame: draftFrame,
+        recoveredFromDraft: true,
       );
-      if (parsed.elements.isEmpty) {
-        return buildDefaultFrame(imagePath, defaults: defaults);
-      }
-      return parsed;
-    } on Exception {
-      return buildDefaultFrame(imagePath, defaults: defaults);
     }
+    if (sidecarFrame != null) {
+      return ViewerDocumentLoadResult(
+        frame: sidecarFrame,
+        recoveredFromDraft: false,
+      );
+    }
+
+    return ViewerDocumentLoadResult(
+      frame: await buildDefaultFrame(imagePath, defaults: defaults),
+      recoveredFromDraft: false,
+    );
   }
 
   /// Crea un plan de guardado con un frame editable estable para reapertura.
@@ -134,72 +163,35 @@ class ViewerDocumentPersistenceService {
     required String imagePath,
     required FrameState frame,
   }) async {
-    final sidecarPath = sidecarPathForImage(imagePath);
-    final file = io.File(sidecarPath);
+    await _writeFrameDocument(
+      filePath: sidecarPathForImage(imagePath),
+      frame: frame,
+      documentKind: 'viewer_editable_document',
+      sourceImagePath: imagePath,
+    );
+  }
 
-    final elements = <Map<String, dynamic>>[];
-    for (final element in frame.elements) {
-      if (element is ImageFrameComponent) {
-        elements.add(<String, dynamic>{
-          'kind': 'image',
-          'id': element.id,
-          'path': element.path,
-          'x': element.position.dx,
-          'y': element.position.dy,
-          'width': element.size.width,
-          'height': element.size.height,
-          'contentWidth': element.contentSize.width,
-          'contentHeight': element.contentSize.height,
-          'contentOffsetX': element.contentOffset.dx,
-          'contentOffsetY': element.contentOffset.dy,
-          'parentImageId': element.parentImageId,
-          'frameBackgroundColor': element.style.backgroundColor,
-          'frameBackgroundOpacity': element.style.backgroundOpacity,
-          'frameBorderColor': element.style.borderColor,
-          'frameBorderWidth': element.style.borderWidth,
-          'framePadding': element.style.padding,
-          'zIndex': element.zIndex,
-          'isLockedBase': element.isLockedBase,
-        });
-        continue;
-      }
-      if (element is AnnotationElement) {
-        elements.add(<String, dynamic>{
-          'kind': 'annotation',
-          'id': element.id,
-          'type': element.type.name,
-          'color': element.color,
-          'strokeWidth': element.strokeWidth,
-          'textSize': element.textSize,
-          'opacity': element.opacity,
-          'text': element.text,
-          'attachedImageId': element.attachedImageId,
-          'coordinateSpace': element.coordinateSpace.name,
-          'x': element.position.dx,
-          'y': element.position.dy,
-          'endX': element.endPosition?.dx,
-          'endY': element.endPosition?.dy,
-          'points': element.points
-              .map((point) => <String, dynamic>{'x': point.dx, 'y': point.dy})
-              .toList(growable: false),
-          'zIndex': element.zIndex,
-        });
-      }
+  /// Persiste un borrador de recuperación para retomar la edición.
+  Future<void> saveRecoveryDraft({
+    required String imagePath,
+    required FrameState frame,
+  }) async {
+    await _writeFrameDocument(
+      filePath: recoveryDraftPathForImage(imagePath),
+      frame: frame,
+      documentKind: 'viewer_recovery_draft',
+      sourceImagePath: imagePath,
+    );
+  }
+
+  /// Elimina el borrador de recuperación de una imagen.
+  Future<void> clearRecoveryDraft({
+    required String imagePath,
+  }) async {
+    final file = io.File(recoveryDraftPathForImage(imagePath));
+    if (file.existsSync()) {
+      await file.delete();
     }
-
-    final payload = <String, dynamic>{
-      'version': 3,
-      'documentKind': 'viewer_editable_document',
-      'canvasSize': <String, dynamic>{
-        'width': frame.canvasSize.width,
-        'height': frame.canvasSize.height,
-      },
-      'backgroundColor': frame.backgroundColor,
-      'elements': elements,
-    };
-
-    await file.parent.create(recursive: true);
-    await file.writeAsString(jsonEncode(payload), flush: true);
   }
 
   /// Construye el frame base inicial cuando aun no existe documento editable.
@@ -255,6 +247,16 @@ class ViewerDocumentPersistenceService {
     final name = file.path.split(io.Platform.pathSeparator).last;
     return '$dir${io.Platform.pathSeparator}.qavision'
         '${io.Platform.pathSeparator}$name.qav.json';
+  }
+
+  /// Ruta del borrador de recuperación asociado a una imagen.
+  String recoveryDraftPathForImage(String imagePath) {
+    final file = io.File(imagePath);
+    final dir = file.parent.path;
+    final name = file.path.split(io.Platform.pathSeparator).last;
+    return '$dir${io.Platform.pathSeparator}.qavision'
+        '${io.Platform.pathSeparator}recovery'
+        '${io.Platform.pathSeparator}$name.draft.qav.json';
   }
 
   /// Ruta de un asset editable preservado para evitar aplanados acumulativos.
@@ -448,6 +450,128 @@ class ViewerDocumentPersistenceService {
     return payloadVersion >= 2
         ? frame
         : _migrateLegacyAnnotationSpaces(frame);
+  }
+
+  Future<io.File> _resolveSidecarFile(String imagePath) async {
+    final newSidecarPath = sidecarPathForImage(imagePath);
+    final oldSidecarPath = '$imagePath.qav.json';
+
+    var sidecarFile = io.File(newSidecarPath);
+    if (!sidecarFile.existsSync()) {
+      final oldFile = io.File(oldSidecarPath);
+      if (oldFile.existsSync()) {
+        try {
+          await sidecarFile.parent.create(recursive: true);
+          await oldFile.rename(newSidecarPath);
+          sidecarFile = io.File(newSidecarPath);
+        } on Object {
+          sidecarFile = oldFile;
+        }
+      }
+    }
+    return sidecarFile;
+  }
+
+  Future<FrameState?> _tryLoadFrameFromFile(
+    io.File file, {
+    required String fallbackImagePath,
+    required ViewerImageFrameDefaults defaults,
+  }) async {
+    if (!file.existsSync()) {
+      return null;
+    }
+    try {
+      final raw = await file.readAsString();
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) {
+        return null;
+      }
+      final parsed = await _parseFrameFromJson(
+        decoded,
+        fallbackImagePath: fallbackImagePath,
+        defaults: defaults,
+      );
+      if (parsed.elements.isEmpty) {
+        return null;
+      }
+      return parsed;
+    } on Exception {
+      return null;
+    }
+  }
+
+  Future<void> _writeFrameDocument({
+    required String filePath,
+    required FrameState frame,
+    required String documentKind,
+    required String sourceImagePath,
+  }) async {
+    final file = io.File(filePath);
+    final elements = <Map<String, dynamic>>[];
+    for (final element in frame.elements) {
+      if (element is ImageFrameComponent) {
+        elements.add(<String, dynamic>{
+          'kind': 'image',
+          'id': element.id,
+          'path': element.path,
+          'x': element.position.dx,
+          'y': element.position.dy,
+          'width': element.size.width,
+          'height': element.size.height,
+          'contentWidth': element.contentSize.width,
+          'contentHeight': element.contentSize.height,
+          'contentOffsetX': element.contentOffset.dx,
+          'contentOffsetY': element.contentOffset.dy,
+          'parentImageId': element.parentImageId,
+          'frameBackgroundColor': element.style.backgroundColor,
+          'frameBackgroundOpacity': element.style.backgroundOpacity,
+          'frameBorderColor': element.style.borderColor,
+          'frameBorderWidth': element.style.borderWidth,
+          'framePadding': element.style.padding,
+          'zIndex': element.zIndex,
+          'isLockedBase': element.isLockedBase,
+        });
+        continue;
+      }
+      if (element is AnnotationElement) {
+        elements.add(<String, dynamic>{
+          'kind': 'annotation',
+          'id': element.id,
+          'type': element.type.name,
+          'color': element.color,
+          'strokeWidth': element.strokeWidth,
+          'textSize': element.textSize,
+          'opacity': element.opacity,
+          'text': element.text,
+          'attachedImageId': element.attachedImageId,
+          'coordinateSpace': element.coordinateSpace.name,
+          'x': element.position.dx,
+          'y': element.position.dy,
+          'endX': element.endPosition?.dx,
+          'endY': element.endPosition?.dy,
+          'points': element.points
+              .map((point) => <String, dynamic>{'x': point.dx, 'y': point.dy})
+              .toList(growable: false),
+          'zIndex': element.zIndex,
+        });
+      }
+    }
+
+    final payload = <String, dynamic>{
+      'version': 3,
+      'documentKind': documentKind,
+      'sourceImagePath': sourceImagePath,
+      'savedAtUtc': DateTime.now().toUtc().toIso8601String(),
+      'canvasSize': <String, dynamic>{
+        'width': frame.canvasSize.width,
+        'height': frame.canvasSize.height,
+      },
+      'backgroundColor': frame.backgroundColor,
+      'elements': elements,
+    };
+
+    await file.parent.create(recursive: true);
+    await file.writeAsString(jsonEncode(payload), flush: true);
   }
 
   Future<FrameState> _buildEditableFrameForSingleOutput({

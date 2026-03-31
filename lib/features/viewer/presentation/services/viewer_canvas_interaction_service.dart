@@ -90,6 +90,8 @@ class ViewerCanvasInteractionService {
       final handle = hitTestFrameResizeHandles(
         logicalPoint: point,
         element: element,
+        elements: elements,
+        zoom: zoom,
       );
       return handle != null && handle != ViewerImageResizeHandle.none;
     }
@@ -110,10 +112,12 @@ class ViewerCanvasInteractionService {
   static ViewerImageResizeHandle? hitTestFrameResizeHandles({
     required Offset logicalPoint,
     required ImageFrameComponent element,
+    List<CanvasElement>? elements,
     double zoom = 1,
   }) {
     final bounds = ViewerCompositionHelper.imageFrameRect(
       element,
+      elements: elements,
       imageZoom: zoom,
     );
     const edge = _imageResizeEdgeHitSlop;
@@ -163,15 +167,16 @@ class ViewerCanvasInteractionService {
   /// Finds top-most image resize hit under [logicalPoint].
   static ViewerImageResizeHit? hitTopImageResizeHandle(
     FrameState frame,
-    Offset logicalPoint,
-    {required double zoom}
-  ) {
+    Offset logicalPoint, {
+    required double zoom,
+  }) {
     final document = ViewerDocumentGraphService.build(frame);
     final images = document.orderedImages(frontToBack: true);
     for (final image in images) {
       final handle = hitTestFrameResizeHandles(
         logicalPoint: logicalPoint,
         element: image,
+        elements: frame.elements,
         zoom: zoom,
       );
       if (handle != null && handle != ViewerImageResizeHandle.none) {
@@ -187,9 +192,9 @@ class ViewerCanvasInteractionService {
   /// Finds top-most image whose frame contains [logicalPoint].
   static ImageFrameComponent? hitTopImageFrame(
     FrameState frame,
-    Offset logicalPoint,
-    {required double zoom}
-  ) {
+    Offset logicalPoint, {
+    required double zoom,
+  }) {
     final document = ViewerDocumentGraphService.build(frame);
     return ViewerDocumentGraphService.topImageAtPoint(
       document,
@@ -310,10 +315,12 @@ class ViewerCanvasInteractionService {
   static bool isInsideImageFrame(
     ImageFrameComponent element,
     Offset point, {
+    List<CanvasElement>? elements,
     double zoom = 1,
   }) {
     return ViewerCompositionHelper.imageFrameRect(
       element,
+      elements: elements,
       imageZoom: zoom,
     ).contains(point);
   }
