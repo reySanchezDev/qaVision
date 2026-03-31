@@ -114,6 +114,8 @@ class _RecentCapturesStripState extends State<RecentCapturesStrip> {
                       const SizedBox(width: 10),
                       RecentStripSaveIndicator(
                         isAutoSaving: viewerState.isAutoSaving,
+                        hasFinalSave:
+                            (viewerState.autoSavePath ?? '').trim().isNotEmpty,
                         recoveredSession: viewerState.recoveredSession,
                       ),
                     ],

@@ -6,6 +6,8 @@ class ViewerZoomControls extends StatelessWidget {
   const ViewerZoomControls({
     required this.zoom,
     required this.fitZoom,
+    required this.minEditableZoom,
+    required this.canZoomOut,
     required this.onFitToScreen,
     required this.onActualSize,
     required this.onZoomIn,
@@ -18,6 +20,12 @@ class ViewerZoomControls extends StatelessWidget {
 
   /// Zoom calculado para ajustar la imagen al viewport.
   final double fitZoom;
+
+  /// Zoom minimo saludable para acciones manuales de edicion.
+  final double minEditableZoom;
+
+  /// Indica si todavia es saludable seguir alejando manualmente.
+  final bool canZoomOut;
 
   /// Accion para ajustar al area visible.
   final VoidCallback onFitToScreen;
@@ -35,6 +43,7 @@ class ViewerZoomControls extends StatelessWidget {
   Widget build(BuildContext context) {
     final isFitActive = (zoom - fitZoom).abs() < 0.02;
     final isActualSize = (zoom - 1).abs() < 0.02;
+    final isBelowEditableFloor = zoom < minEditableZoom - 0.02;
 
     return Positioned(
       right: 12,
@@ -66,15 +75,17 @@ class ViewerZoomControls extends StatelessWidget {
               tooltip: 'Alejar',
               icon: const Icon(Icons.remove, size: 18),
               color: Colors.white70,
-              onPressed: onZoomOut,
+              onPressed: canZoomOut ? onZoomOut : null,
             ),
             SizedBox(
               width: 56,
               child: Center(
                 child: Text(
                   '${(zoom * 100).round()}%',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: isBelowEditableFloor
+                        ? const Color(0xFFFFD180)
+                        : Colors.white,
                     fontWeight: FontWeight.w700,
                     fontSize: 12,
                   ),

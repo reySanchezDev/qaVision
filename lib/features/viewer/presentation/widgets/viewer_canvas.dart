@@ -9,6 +9,7 @@ import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_state.dart';
 import 'package:qavision/features/viewer/presentation/services/viewer_canvas_interaction_service.dart';
 import 'package:qavision/features/viewer/presentation/services/viewer_canvas_text_actions.dart';
+import 'package:qavision/features/viewer/presentation/services/viewer_viewport_transform_service.dart';
 import 'package:qavision/features/viewer/presentation/utils/viewer_composition_helper.dart';
 import 'package:qavision/features/viewer/presentation/widgets/viewer_canvas_painter.dart';
 import 'package:qavision/features/viewer/presentation/widgets/viewer_text_dialog.dart';
@@ -109,6 +110,10 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
       return;
     }
 
+    if (_ensureEditableZoom(context, state)) {
+      return;
+    }
+
     if (state.activeTool == AnnotationType.eraser) {
       final hit = ViewerCanvasInteractionService.hitTest(
         state.frame,
@@ -141,6 +146,10 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
     final bloc = context.read<ViewerBloc>();
     final state = bloc.state;
     final displayPoint = details.localPosition;
+
+    if (_ensureEditableZoom(context, state)) {
+      return;
+    }
 
     if (state.activeTool == AnnotationType.selection) {
       final selected = ViewerCanvasInteractionService.selectedElement(state);
@@ -487,5 +496,19 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
     _elementResizeStartPointer = Offset.zero;
     _imageResizeHandle = ViewerImageResizeHandle.none;
     _elementResizeStartRect = Rect.zero;
+  }
+
+  bool _ensureEditableZoom(BuildContext context, ViewerState state) {
+    if (state.canvasZoom >=
+        ViewerViewportTransformService.defaultEditableMinZoom) {
+      return false;
+    }
+
+    context.read<ViewerBloc>().add(
+      const ViewerZoomChanged(
+        ViewerViewportTransformService.defaultEditableMinZoom,
+      ),
+    );
+    return true;
   }
 }

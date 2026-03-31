@@ -70,6 +70,25 @@ void main() {
       );
     });
 
+    test(
+      'fit puede bajar por debajo del minimo editable para vista general',
+      () {
+      final fitZoom = ViewerViewportTransformService.resolveFitZoom(
+        viewportSize: const Size(420, 260),
+        imageSize: const Size(1200, 900),
+      );
+
+      expect(
+        fitZoom,
+        lessThan(ViewerViewportTransformService.defaultEditableMinZoom),
+      );
+      expect(
+        fitZoom,
+        greaterThanOrEqualTo(ViewerViewportTransformService.defaultViewMinZoom),
+      );
+      },
+    );
+
     test('resuelve max zoom a partir de canvas e imagen', () {
       final maxZoom = ViewerViewportTransformService.resolveMaxZoom(
         canvasSize: const Size(1200, 900),

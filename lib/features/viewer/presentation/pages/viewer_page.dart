@@ -145,7 +145,7 @@ class _ViewerPageState extends State<ViewerPage> {
                                       final effectiveZoom = state.canvasZoom
                                           .clamp(
                                             ViewerViewportTransformService
-                                                .defaultMinZoom,
+                                                .defaultViewMinZoom,
                                             maxZoom,
                                           );
 
@@ -186,13 +186,21 @@ class _ViewerPageState extends State<ViewerPage> {
                                 ),
                               ViewerZoomControls(
                                 zoom: state.canvasZoom.clamp(
-                                  ViewerViewportTransformService.defaultMinZoom,
+                                  ViewerViewportTransformService
+                                      .defaultViewMinZoom,
                                   _maxZoomForState(state),
                                 ),
                                 fitZoom: _fitZoomForState(
                                   state,
                                   _lastViewportSize,
                                 ),
+                                minEditableZoom: ViewerViewportTransformService
+                                    .defaultEditableMinZoom,
+                                canZoomOut:
+                                    state.canvasZoom >
+                                    ViewerViewportTransformService
+                                            .defaultEditableMinZoom +
+                                        0.001,
                                 onFitToScreen: () => _fitToScreen(state),
                                 onActualSize: () => _setActualSize(state),
                                 onZoomIn: () => _zoomIn(state),
@@ -254,10 +262,14 @@ class _ViewerPageState extends State<ViewerPage> {
 
   void _zoomIn(ViewerState state) {
     final maxZoom = _maxZoomForState(state);
+    final nextZoom = state.canvasZoom <
+            ViewerViewportTransformService.defaultEditableMinZoom
+        ? ViewerViewportTransformService.defaultEditableMinZoom
+        : state.canvasZoom + 0.1;
     context.read<ViewerBloc>().add(
       ViewerZoomChanged(
-        (state.canvasZoom + 0.1).clamp(
-          ViewerViewportTransformService.defaultMinZoom,
+        nextZoom.clamp(
+          ViewerViewportTransformService.defaultEditableMinZoom,
           maxZoom,
         ),
       ),
@@ -269,7 +281,7 @@ class _ViewerPageState extends State<ViewerPage> {
     context.read<ViewerBloc>().add(
       ViewerZoomChanged(
         (state.canvasZoom - 0.1).clamp(
-          ViewerViewportTransformService.defaultMinZoom,
+          ViewerViewportTransformService.defaultEditableMinZoom,
           maxZoom,
         ),
       ),
@@ -281,7 +293,10 @@ class _ViewerPageState extends State<ViewerPage> {
     context.read<ViewerBloc>().add(
       ViewerZoomChanged(
         1
-            .clamp(ViewerViewportTransformService.defaultMinZoom, maxZoom)
+            .clamp(
+              ViewerViewportTransformService.defaultEditableMinZoom,
+              maxZoom,
+            )
             .toDouble(),
       ),
     );

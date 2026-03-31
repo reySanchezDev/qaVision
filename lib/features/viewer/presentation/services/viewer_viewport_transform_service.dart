@@ -7,8 +7,14 @@ import 'dart:ui';
 /// de puntos/tamanos/rectangulos. Esto reduce regresiones cuando cambia el
 /// comportamiento visual del visor.
 class ViewerViewportTransformService {
-  /// Zoom minimo permitido por defecto para el viewport.
-  static const double defaultMinZoom = 0.1;
+  /// Zoom minimo absoluto permitido para vista general del viewport.
+  static const double defaultViewMinZoom = 0.1;
+
+  /// Zoom minimo saludable para operaciones de edicion.
+  static const double defaultEditableMinZoom = 0.75;
+
+  /// Alias legado para compatibilidad con llamadas existentes.
+  static const double defaultMinZoom = defaultViewMinZoom;
 
   /// Zoom maximo duro permitido por defecto para el viewport.
   static const double defaultHardMaxZoom = 3;
@@ -19,7 +25,7 @@ class ViewerViewportTransformService {
   /// Normaliza cualquier valor de zoom invalido.
   static double normalizeZoom(
     double zoom, {
-    double minZoom = defaultMinZoom,
+    double minZoom = defaultViewMinZoom,
     double maxZoom = 10,
   }) {
     if (!zoom.isFinite || zoom <= 0) {
@@ -111,7 +117,7 @@ class ViewerViewportTransformService {
   static double resolveMaxZoom({
     required Size canvasSize,
     required Size imageSize,
-    double minZoom = defaultMinZoom,
+    double minZoom = defaultViewMinZoom,
     double hardMaxZoom = defaultHardMaxZoom,
   }) {
     final maxWidthZoom = canvasSize.width / imageSize.width;
@@ -127,7 +133,7 @@ class ViewerViewportTransformService {
   static double resolveFitZoom({
     required Size viewportSize,
     required Size imageSize,
-    double minZoom = defaultMinZoom,
+    double minZoom = defaultViewMinZoom,
     double maxZoom = defaultHardMaxZoom,
     double padding = defaultFitPadding,
   }) {

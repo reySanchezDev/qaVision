@@ -221,7 +221,9 @@ class ViewerToolbar extends StatelessWidget {
       ),
       const ViewerToolbarGroupSeparator(),
       Tooltip(
-        message: 'Guardar manualmente',
+        message:
+            'Guardar imagen final. '
+            'Este paso actualiza el archivo visible fuera del visor.',
         child: Padding(
           padding: const EdgeInsets.only(left: 4),
           child: FilledButton.icon(
@@ -238,7 +240,7 @@ class ViewerToolbar extends StatelessWidget {
             ),
             icon: const Icon(Icons.save, size: 16),
             label: const Text(
-              'Guardar',
+              'Guardar final',
               style: TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
