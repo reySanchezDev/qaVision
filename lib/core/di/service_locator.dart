@@ -14,6 +14,7 @@ import 'package:qavision/features/projects/data/repositories/project_repository.
 import 'package:qavision/features/projects/data/services/project_folder_watch_service.dart';
 import 'package:qavision/features/projects/domain/repositories/i_project_repository.dart';
 import 'package:qavision/features/projects/presentation/bloc/project_bloc.dart';
+import 'package:qavision/features/viewer/data/services/viewer_document_persistence_service.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
 
 /// Instancia global de GetIt para inyeccion de dependencias.
@@ -35,6 +36,11 @@ void setupServiceLocator() {
     )
     ..registerLazySingleton<ClipboardService>(ClipboardService.new)
     ..registerLazySingleton<ShareService>(ShareService.new)
+    ..registerLazySingleton<ViewerDocumentPersistenceService>(
+      () => ViewerDocumentPersistenceService(
+        fileSystemService: sl<FileSystemService>(),
+      ),
+    )
     ..registerLazySingleton<IProjectRepository>(
       () => ProjectRepository(
         storageService: sl<StorageService>(),
@@ -72,6 +78,7 @@ void setupServiceLocator() {
         fileSystemService: sl<FileSystemService>(),
         clipboardService: sl<ClipboardService>(),
         shareService: sl<ShareService>(),
+        documentPersistenceService: sl<ViewerDocumentPersistenceService>(),
       ),
     )
     ..registerLazySingleton<HistoryBloc>(

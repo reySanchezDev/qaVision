@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io' as io;
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -10,10 +9,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:qavision/core/services/clipboard_service.dart';
 import 'package:qavision/core/services/file_system_service.dart';
 import 'package:qavision/core/services/share_service.dart';
+import 'package:qavision/features/viewer/data/services/viewer_document_persistence_service.dart';
 import 'package:qavision/features/viewer/domain/entities/image_frame_component.dart';
 import 'package:qavision/features/viewer/domain/entities/image_frame_style.dart';
 import 'package:qavision/features/viewer/domain/entities/image_frame_transform.dart';
 import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
+import 'package:qavision/features/viewer/domain/entities/viewer_image_frame_defaults.dart';
 import 'package:qavision/features/viewer/domain/services/image_frame_component_service.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_state.dart';
@@ -28,9 +29,11 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     required FileSystemService fileSystemService,
     required ClipboardService clipboardService,
     required ShareService shareService,
+    required ViewerDocumentPersistenceService documentPersistenceService,
   }) : _fileSystemService = fileSystemService,
        _clipboardService = clipboardService,
        _shareService = shareService,
+       _documentPersistenceService = documentPersistenceService,
        super(const ViewerState()) {
     on<ViewerStarted>(_onStarted);
     on<ViewerToolChanged>(_onToolChanged);
@@ -68,6 +71,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
   final FileSystemService _fileSystemService;
   final ClipboardService _clipboardService;
   final ShareService _shareService;
+  final ViewerDocumentPersistenceService _documentPersistenceService;
   static const _uuid = Uuid();
   static const bool _autoSaveEnabled = false;
   static const int _defaultFrameBackgroundColor = 0xFFFFFFFF;
@@ -84,8 +88,8 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
   String? _activeImagePath;
   String? _projectPath;
 
-  _ImageFrameDefaults _resolveDefaultsFromStart(ViewerStarted event) {
-    return _ImageFrameDefaults(
+  ViewerImageFrameDefaults _resolveDefaultsFromStart(ViewerStarted event) {
+    return ViewerImageFrameDefaults(
       backgroundColor:
           event.defaultFrameBackgroundColor ?? _defaultFrameBackgroundColor,
       backgroundOpacity:
@@ -102,8 +106,8 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     );
   }
 
-  _ImageFrameDefaults _resolveDefaultsFromInsert(ViewerImageAdded event) {
-    return _ImageFrameDefaults(
+  ViewerImageFrameDefaults _resolveDefaultsFromInsert(ViewerImageAdded event) {
+    return ViewerImageFrameDefaults(
       backgroundColor:
           event.defaultFrameBackgroundColor ?? _defaultFrameBackgroundColor,
       backgroundOpacity:
@@ -136,9 +140,11 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       _projectPath = io.File(event.imagePath).parent.path;
       final defaults = _resolveDefaultsFromStart(event);
 
-      final loadedFrame = await _loadFrameForImage(
-        event.imagePath,
-        defaults: defaults,
+      final loadedFrame = _constrainImagesToCanvas(
+        await _documentPersistenceService.loadFrameForImage(
+          imagePath: event.imagePath,
+          defaults: defaults,
+        ),
       );
       final selectedImageId = loadedFrame.elements
           .whereType<ImageFrameComponent>()
@@ -1215,42 +1221,34 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     if (activeImagePath == null || activeImagePath.isEmpty) return;
 
     _projectPath = io.File(activeImagePath).parent.path;
-    final images = state.frame.elements.whereType<ImageFrameComponent>().toList(
-      growable: false,
+    final savePlan = await _documentPersistenceService.prepareSavePlan(
+      activeImagePath: activeImagePath,
+      frame: state.frame,
     );
-    final rootImages = images
-        .where((image) => image.parentImageId == null)
-        .toList(growable: false);
-    final rootImageCount = rootImages.length;
-    final focusImageId = rootImageCount == 1 ? rootImages.first.id : null;
-    final saveAsComposite = rootImageCount > 1;
-    final outputNoExt = saveAsComposite
-        ? _composedOutputNoExt(activeImagePath)
-        : _stripFileExtension(activeImagePath);
-    final editableFrame = saveAsComposite
-        ? state.frame
-        : await _buildEditableFrameForSingleOutput(
-            outputImagePath: '$outputNoExt.jpg',
-            frame: state.frame,
-          );
 
     emit(state.copyWith(isAutoSaving: true, clearErrorMessage: true));
     try {
       final bytes = await _generateCompositionBytes(
         state.frame,
-        focusImageId: focusImageId,
+        focusImageId: savePlan.focusImageId,
       );
       final savedPath = await _fileSystemService.saveAsJpg(
         imageBytes: bytes,
-        outputPath: outputNoExt,
+        outputPath: savePlan.outputPathWithoutExtension,
         overwrite: true,
       );
-      if (!saveAsComposite) {
+      if (!savePlan.saveAsComposite) {
         _activeImagePath = savedPath;
       }
-      await _saveFrameSidecar(activeImagePath, editableFrame);
-      if (saveAsComposite) {
-        await _saveFrameSidecar(savedPath, state.frame);
+      await _documentPersistenceService.saveEditableFrame(
+        imagePath: activeImagePath,
+        frame: savePlan.editableFrame,
+      );
+      if (savePlan.saveAsComposite) {
+        await _documentPersistenceService.saveEditableFrame(
+          imagePath: savedPath,
+          frame: state.frame,
+        );
       }
 
       List<String>? recent;
@@ -1264,7 +1262,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
 
       emit(
         state.copyWith(
-          frame: editableFrame,
+          frame: savePlan.editableFrame,
           isAutoSaving: false,
           autoSavePath: savedPath,
           recentProjectPath: state.recentProjectPath ?? _projectPath,
@@ -1279,323 +1277,6 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         ),
       );
     }
-  }
-
-  Future<FrameState> _loadFrameForImage(
-    String imagePath, {
-    required _ImageFrameDefaults defaults,
-  }) async {
-    final newSidecarPath = _sidecarPathForImage(imagePath);
-    final oldSidecarPath = '$imagePath.qav.json';
-
-    var sidecarFile = io.File(newSidecarPath);
-
-    // Si no existe en la carpeta nueva, buscamos en la vieja (Compatibilidad).
-    if (!sidecarFile.existsSync()) {
-      final oldFile = io.File(oldSidecarPath);
-      if (oldFile.existsSync()) {
-        try {
-          // Intentamos migrarlo a la nueva carpeta inmediatamente
-          await sidecarFile.parent.create(recursive: true);
-          await oldFile.rename(newSidecarPath);
-          sidecarFile = io.File(newSidecarPath);
-        } on Object {
-          // Si falla el rename, usamos el viejo como fallback
-          sidecarFile = oldFile;
-        }
-      } else {
-        return _buildDefaultFrame(imagePath, defaults: defaults);
-      }
-    }
-
-    try {
-      final raw = await sidecarFile.readAsString();
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) {
-        return _buildDefaultFrame(imagePath, defaults: defaults);
-      }
-      final parsed = await _parseFrameFromJson(
-        decoded,
-        fallbackImagePath: imagePath,
-        defaults: defaults,
-      );
-      if (parsed.elements.isEmpty) {
-        return _buildDefaultFrame(imagePath, defaults: defaults);
-      }
-      return parsed;
-    } on Exception {
-      return _buildDefaultFrame(imagePath, defaults: defaults);
-    }
-  }
-
-  Future<FrameState> _buildDefaultFrame(
-    String imagePath, {
-    required _ImageFrameDefaults defaults,
-  }) async {
-    final image = await _loadImage(imagePath);
-    const frameSize = Size(1500, 900);
-    final workspaceRect = _workspaceRectForCanvas(frameSize);
-    final rawSize = Size(image.width.toDouble(), image.height.toDouble());
-    final visualSize = ImageFrameComponentService.fitImageInsideFrame(
-      rawSize,
-      workspaceRect.size,
-      maxFillRatio: 0.84,
-    );
-    final centeredPosition = _centerPositionForSize(visualSize, workspaceRect);
-
-    final baseImage = ImageFrameComponent(
-      id: _uuid.v4(),
-      position: centeredPosition,
-      zIndex: 0,
-      path: imagePath,
-      contentSize: visualSize,
-      style: ImageFrameStyle(
-        backgroundColor: defaults.backgroundColor,
-        backgroundOpacity: defaults.backgroundOpacity,
-        borderColor: defaults.borderColor,
-        borderWidth: defaults.borderWidth,
-        padding: defaults.padding,
-      ),
-      transform: ImageFrameTransform(
-        position: centeredPosition,
-        size: visualSize,
-      ),
-      image: image,
-      isLockedBase: true,
-    );
-
-    return FrameState(
-      canvasSize: frameSize,
-      elements: [baseImage],
-    );
-  }
-
-  Future<FrameState> _parseFrameFromJson(
-    Map<String, dynamic> json, {
-    required String fallbackImagePath,
-    required _ImageFrameDefaults defaults,
-  }) async {
-    final payloadVersion = (json['version'] as num?)?.toInt() ?? 1;
-    final canvasRaw = json['canvasSize'];
-    final canvasSize = canvasRaw is Map<String, dynamic>
-        ? Size(
-            (canvasRaw['width'] as num?)?.toDouble() ?? 1500,
-            (canvasRaw['height'] as num?)?.toDouble() ?? 900,
-          )
-        : const Size(1500, 900);
-    final backgroundColor = (json['backgroundColor'] as int?) ?? 0xFF111111;
-
-    final elementsRaw = json['elements'];
-    if (elementsRaw is! List) {
-      return _buildDefaultFrame(fallbackImagePath, defaults: defaults);
-    }
-
-    final parsedElements = <CanvasElement>[];
-    for (final raw in elementsRaw) {
-      if (raw is! Map<String, dynamic>) continue;
-      final kind = (raw['kind'] as String? ?? '').trim().toLowerCase();
-      final id = (raw['id'] as String? ?? '').trim();
-      if (id.isEmpty) continue;
-      final zIndex = (raw['zIndex'] as int?) ?? parsedElements.length;
-      final x = (raw['x'] as num?)?.toDouble() ?? 0;
-      final y = (raw['y'] as num?)?.toDouble() ?? 0;
-
-      if (kind == 'image') {
-        final path = (raw['path'] as String? ?? '').trim();
-        if (path.isEmpty) continue;
-        final file = io.File(path);
-        if (!file.existsSync()) continue;
-
-        final width = (raw['width'] as num?)?.toDouble() ?? 0;
-        final height = (raw['height'] as num?)?.toDouble() ?? 0;
-        final image = await _loadImage(path);
-        final targetWidth = width > 0 ? width : image.width.toDouble();
-        final targetHeight = height > 0 ? height : image.height.toDouble();
-        final contentWidth =
-            (raw['contentWidth'] as num?)?.toDouble() ?? targetWidth;
-        final contentHeight =
-            (raw['contentHeight'] as num?)?.toDouble() ?? targetHeight;
-        final contentOffsetX = (raw['contentOffsetX'] as num?)?.toDouble() ?? 0;
-        final contentOffsetY = (raw['contentOffsetY'] as num?)?.toDouble() ?? 0;
-        final parentImageId = (raw['parentImageId'] as String?)?.trim();
-
-        parsedElements.add(
-          ImageFrameComponent(
-            id: id,
-            position: Offset(x, y),
-            zIndex: zIndex,
-            path: path,
-            contentSize: Size(contentWidth, contentHeight),
-            style: ImageFrameStyle(
-              backgroundColor:
-                  (raw['frameBackgroundColor'] as int?) ??
-                  defaults.backgroundColor,
-              backgroundOpacity:
-                  ((raw['frameBackgroundOpacity'] as num?)?.toDouble() ??
-                          defaults.backgroundOpacity)
-                      .clamp(0.0, 1.0),
-              borderColor:
-                  (raw['frameBorderColor'] as int?) ?? defaults.borderColor,
-              borderWidth:
-                  ((raw['frameBorderWidth'] as num?)?.toDouble() ??
-                          defaults.borderWidth)
-                      .clamp(0.0, 20.0),
-              padding:
-                  ((raw['framePadding'] as num?)?.toDouble() ??
-                          defaults.padding)
-                      .clamp(0.0, 300.0),
-            ),
-            transform: ImageFrameTransform(
-              position: Offset(x, y),
-              size: Size(targetWidth, targetHeight),
-              contentOffset: Offset(contentOffsetX, contentOffsetY),
-            ),
-            image: image,
-            parentImageId: parentImageId == null || parentImageId.isEmpty
-                ? null
-                : parentImageId,
-            isLockedBase: (raw['isLockedBase'] as bool?) ?? false,
-          ),
-        );
-        continue;
-      }
-
-      if (kind != 'annotation') continue;
-
-      final typeName = (raw['type'] as String? ?? '').trim();
-      final type = AnnotationType.values.firstWhere(
-        (value) => value.name == typeName,
-        orElse: () => AnnotationType.rectangle,
-      );
-      final pointsRaw = raw['points'];
-      final points = <Offset>[];
-      if (pointsRaw is List) {
-        for (final pointRaw in pointsRaw) {
-          if (pointRaw is! Map<String, dynamic>) continue;
-          points.add(
-            Offset(
-              (pointRaw['x'] as num?)?.toDouble() ?? 0,
-              (pointRaw['y'] as num?)?.toDouble() ?? 0,
-            ),
-          );
-        }
-      }
-
-      final endX = (raw['endX'] as num?)?.toDouble();
-      final endY = (raw['endY'] as num?)?.toDouble();
-      final attachedImageId = (raw['attachedImageId'] as String?)?.trim();
-      final coordinateSpaceName =
-          (raw['coordinateSpace'] as String?)?.trim() ?? '';
-      final coordinateSpace = AnnotationCoordinateSpace.values.firstWhere(
-        (value) => value.name == coordinateSpaceName,
-        orElse: () => AnnotationCoordinateSpace.workspace,
-      );
-      parsedElements.add(
-        AnnotationElement(
-          id: id,
-          type: type,
-          color: (raw['color'] as int?) ?? 0xFFE53935,
-          strokeWidth: (raw['strokeWidth'] as num?)?.toDouble() ?? 4,
-          textSize: (raw['textSize'] as num?)?.toDouble() ?? 20,
-          opacity: (raw['opacity'] as num?)?.toDouble() ?? 1,
-          text: (raw['text'] as String?) ?? '',
-          position: Offset(x, y),
-          endPosition: (endX != null && endY != null)
-              ? Offset(endX, endY)
-              : null,
-          points: points,
-          attachedImageId: attachedImageId == null || attachedImageId.isEmpty
-              ? null
-              : attachedImageId,
-          coordinateSpace: coordinateSpace,
-          zIndex: zIndex,
-        ),
-      );
-    }
-
-    if (parsedElements.isEmpty) {
-      return _buildDefaultFrame(fallbackImagePath, defaults: defaults);
-    }
-
-    final frame = FrameState(
-      canvasSize: canvasSize,
-      backgroundColor: backgroundColor,
-      elements: _normalizeZ(parsedElements),
-    );
-    final constrained = _constrainImagesToCanvas(frame);
-    return payloadVersion >= 2
-        ? constrained
-        : _migrateLegacyAnnotationSpaces(constrained);
-  }
-
-  Future<void> _saveFrameSidecar(String imagePath, FrameState frame) async {
-    final sidecarPath = _sidecarPathForImage(imagePath);
-    final file = io.File(sidecarPath);
-
-    final elements = <Map<String, dynamic>>[];
-    for (final element in frame.elements) {
-      if (element is ImageFrameComponent) {
-        elements.add(<String, dynamic>{
-          'kind': 'image',
-          'id': element.id,
-          'path': element.path,
-          'x': element.position.dx,
-          'y': element.position.dy,
-          'width': element.size.width,
-          'height': element.size.height,
-          'contentWidth': element.contentSize.width,
-          'contentHeight': element.contentSize.height,
-          'contentOffsetX': element.contentOffset.dx,
-          'contentOffsetY': element.contentOffset.dy,
-          'parentImageId': element.parentImageId,
-          'frameBackgroundColor': element.style.backgroundColor,
-          'frameBackgroundOpacity': element.style.backgroundOpacity,
-          'frameBorderColor': element.style.borderColor,
-          'frameBorderWidth': element.style.borderWidth,
-          'framePadding': element.style.padding,
-          'zIndex': element.zIndex,
-          'isLockedBase': element.isLockedBase,
-        });
-        continue;
-      }
-      if (element is AnnotationElement) {
-        elements.add(<String, dynamic>{
-          'kind': 'annotation',
-          'id': element.id,
-          'type': element.type.name,
-          'color': element.color,
-          'strokeWidth': element.strokeWidth,
-          'textSize': element.textSize,
-          'opacity': element.opacity,
-          'text': element.text,
-          'attachedImageId': element.attachedImageId,
-          'coordinateSpace': element.coordinateSpace.name,
-          'x': element.position.dx,
-          'y': element.position.dy,
-          'endX': element.endPosition?.dx,
-          'endY': element.endPosition?.dy,
-          'points': element.points
-              .map((point) => <String, dynamic>{'x': point.dx, 'y': point.dy})
-              .toList(growable: false),
-          'zIndex': element.zIndex,
-        });
-      }
-    }
-
-    final payload = <String, dynamic>{
-      'version': 2,
-      'canvasSize': <String, dynamic>{
-        'width': frame.canvasSize.width,
-        'height': frame.canvasSize.height,
-      },
-      'backgroundColor': frame.backgroundColor,
-      'elements': elements,
-    };
-
-    final encodedPayload = jsonEncode(payload);
-
-    await file.parent.create(recursive: true);
-    await file.writeAsString(encodedPayload, flush: true);
   }
 
   AnnotationCoordinateSpace _annotationCoordinateSpaceForAttachment(
@@ -1884,52 +1565,6 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     return descendants;
   }
 
-  FrameState _migrateLegacyAnnotationSpaces(FrameState frame) {
-    final migrated = frame.elements.map((element) {
-      if (element is! AnnotationElement) {
-        return element;
-      }
-      if (element.attachedImageId == null || element.attachedImageId!.isEmpty) {
-        return element;
-      }
-      if (element.coordinateSpace == AnnotationCoordinateSpace.imageContent) {
-        return element;
-      }
-
-      final attachedImage = _findImageById(
-        frame.elements,
-        element.attachedImageId!,
-      );
-      if (attachedImage == null) {
-        return element;
-      }
-
-      return element.copyWith(
-        position: ViewerCompositionHelper.canvasPointToImageContent(
-          attachedImage,
-          element.position,
-        ),
-        endPosition: element.endPosition == null
-            ? null
-            : ViewerCompositionHelper.canvasPointToImageContent(
-                attachedImage,
-                element.endPosition!,
-              ),
-        points: element.points
-            .map(
-              (point) => ViewerCompositionHelper.canvasPointToImageContent(
-                attachedImage,
-                point,
-              ),
-            )
-            .toList(growable: false),
-        coordinateSpace: AnnotationCoordinateSpace.imageContent,
-      );
-    }).toList(growable: false);
-
-    return frame.copyWith(elements: migrated);
-  }
-
   AnnotationElement _translateAnnotation(
     AnnotationElement annotation,
     Offset delta,
@@ -1998,92 +1633,6 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       bounds.left + ((bounds.width - (size.width * displayScale)) / 2),
       bounds.top + ((bounds.height - (size.height * displayScale)) / 2),
     );
-  }
-
-  String _sidecarPathForImage(String imagePath) {
-    final file = io.File(imagePath);
-    final dir = file.parent.path;
-    final name = file.path.split(io.Platform.pathSeparator).last;
-    return '$dir${io.Platform.pathSeparator}.qavision'
-        '${io.Platform.pathSeparator}$name.qav.json';
-  }
-
-  String _editableAssetPathForImage(
-    String imagePath, {
-    required String elementId,
-  }) {
-    final file = io.File(imagePath);
-    final dir = file.parent.path;
-    final name = file.path.split(io.Platform.pathSeparator).last;
-    return '$dir${io.Platform.pathSeparator}.qavision'
-        '${io.Platform.pathSeparator}assets'
-        '${io.Platform.pathSeparator}$elementId-$name';
-  }
-
-  String _stripFileExtension(String path) {
-    final normalized = path.trim();
-    if (normalized.isEmpty) return normalized;
-
-    final slash = math.max(
-      normalized.lastIndexOf('/'),
-      normalized.lastIndexOf(io.Platform.pathSeparator),
-    );
-    final dot = normalized.lastIndexOf('.');
-    if (dot <= slash) return normalized;
-    return normalized.substring(0, dot);
-  }
-
-  String _composedOutputNoExt(String activeImagePath) {
-    final base = _stripFileExtension(activeImagePath);
-    if (base.toLowerCase().endsWith('_compuesto')) {
-      return base;
-    }
-    return '${base}_compuesto';
-  }
-
-  Future<FrameState> _buildEditableFrameForSingleOutput({
-    required String outputImagePath,
-    required FrameState frame,
-  }) async {
-    final elements = <CanvasElement>[];
-
-    for (final element in frame.elements) {
-      if (element is! ImageFrameComponent) {
-        elements.add(element);
-        continue;
-      }
-
-      if (_samePath(element.path, outputImagePath)) {
-        final editablePath = _editableAssetPathForImage(
-          outputImagePath,
-          elementId: element.id,
-        );
-        final editableFile = io.File(editablePath);
-        if (!editableFile.existsSync()) {
-          final sourceFile = io.File(outputImagePath);
-          if (sourceFile.existsSync()) {
-            await editableFile.parent.create(recursive: true);
-            await sourceFile.copy(editablePath);
-          }
-        }
-        elements.add(
-          element.copyWith(path: editablePath),
-        );
-        continue;
-      }
-
-      elements.add(element);
-    }
-
-    return frame.copyWith(elements: elements);
-  }
-
-  bool _samePath(String left, String right) {
-    String normalizePath(String path) {
-      return path.trim().replaceAll(r'\', '/').toLowerCase();
-    }
-
-    return normalizePath(left) == normalizePath(right);
   }
 
   Future<ui.Image> _loadImage(String path) async {
@@ -2253,20 +1802,4 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       }
     }
   }
-}
-
-class _ImageFrameDefaults {
-  const _ImageFrameDefaults({
-    required this.backgroundColor,
-    required this.backgroundOpacity,
-    required this.borderColor,
-    required this.borderWidth,
-    required this.padding,
-  });
-
-  final int backgroundColor;
-  final double backgroundOpacity;
-  final int borderColor;
-  final double borderWidth;
-  final double padding;
 }

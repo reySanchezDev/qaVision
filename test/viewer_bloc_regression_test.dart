@@ -7,6 +7,7 @@ import 'package:image/image.dart' as img;
 import 'package:qavision/core/services/clipboard_service.dart';
 import 'package:qavision/core/services/file_system_service.dart';
 import 'package:qavision/core/services/share_service.dart';
+import 'package:qavision/features/viewer/data/services/viewer_document_persistence_service.dart';
 import 'package:qavision/features/viewer/domain/entities/image_frame_component.dart';
 import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
@@ -83,6 +84,9 @@ void main() {
         fileSystemService: FileSystemService(),
         clipboardService: _FakeClipboardService(),
         shareService: _FakeShareService(),
+        documentPersistenceService: ViewerDocumentPersistenceService(
+          fileSystemService: FileSystemService(),
+        ),
       );
     });
 
