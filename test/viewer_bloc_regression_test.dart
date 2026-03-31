@@ -11,6 +11,8 @@ import 'package:qavision/features/viewer/domain/entities/image_frame_component.d
 import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
+import 'package:qavision/features/viewer/presentation/utils/viewer_composition_helper.dart';
+import 'package:qavision/features/viewer/presentation/utils/viewer_workspace_layout.dart';
 
 class _FakeClipboardService extends ClipboardService {
   @override
@@ -55,6 +57,13 @@ Future<String> _writeTestJpg(String path) async {
   await file.parent.create(recursive: true);
   await file.writeAsBytes(bytes, flush: true);
   return file.path;
+}
+
+img.Image _decodeJpg(String path) {
+  final bytes = File(path).readAsBytesSync();
+  final decoded = img.decodeJpg(bytes);
+  expect(decoded, isNotNull);
+  return decoded!;
 }
 
 String _stripExtension(String path) {
@@ -115,11 +124,82 @@ void main() {
       );
       expect(hasCompositionCopy, isFalse);
 
-      final sidecar = File('$imagePath.qav.json');
+      final sidecar = File(
+        '${tempDir.path}${Platform.pathSeparator}.qavision'
+        '${Platform.pathSeparator}base.jpg.qav.json',
+      );
       expect(sidecar.existsSync(), isTrue);
       final sidecarRaw = await sidecar.readAsString();
       expect(sidecarRaw.contains('"elements"'), isTrue);
     });
+
+    test(
+      'al guardar una sola imagen no agrega borde extra en derecha ni abajo',
+      () async {
+        final imagePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}no_border.jpg',
+        );
+
+        bloc.add(ViewerStarted(imagePath: imagePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final base = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        bloc.add(const ViewerExportRequested());
+        await _waitForAutoSave(bloc);
+
+        final saved = _decodeJpg(imagePath);
+        expect(saved.width, (base.size.width * 2).round());
+        expect(saved.height, (base.size.height * 2).round());
+      },
+    );
+
+    test(
+      'al reabrir una imagen guardada no duplica anotaciones del sidecar',
+      () async {
+        final imagePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}reopen_annotations.jpg',
+        );
+
+        bloc.add(ViewerStarted(imagePath: imagePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final base = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        final start = base.position + const Offset(10, 10);
+        final end = base.position + const Offset(40, 18);
+
+        bloc.add(const ViewerToolChanged(AnnotationType.arrow));
+        await _drainQueue();
+        bloc
+          ..add(ViewerAnnotationStarted(start))
+          ..add(ViewerAnnotationUpdated(end))
+          ..add(const ViewerAnnotationFinished());
+        await _drainQueue();
+
+        bloc.add(const ViewerExportRequested());
+        await _waitForAutoSave(bloc);
+
+        bloc.add(ViewerStarted(imagePath: imagePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final annotations = bloc.state.frame.elements
+            .whereType<AnnotationElement>()
+            .toList(growable: false);
+        final reopenedBase = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+
+        expect(annotations.length, 1);
+        expect(reopenedBase.path, isNot(imagePath));
+        expect(File(reopenedBase.path).existsSync(), isTrue);
+      },
+    );
 
     test('al abrir imagen selecciona automaticamente el frame base', () async {
       final imagePath = await _writeTestJpg(
@@ -210,13 +290,77 @@ void main() {
       final centered = bloc.state.frame.elements
           .whereType<ImageFrameComponent>()
           .firstWhere((element) => element.id == image.id);
-      final canvasSize = bloc.state.frame.canvasSize;
+      final workspaceRect = ViewerWorkspaceLayout.resolve(
+        bloc.state.frame.canvasSize,
+      );
       final expectedCenter = Offset(
-        (canvasSize.width - centered.size.width) / 2,
-        (canvasSize.height - centered.size.height) / 2,
+        workspaceRect.left + (workspaceRect.width - centered.size.width) / 2,
+        workspaceRect.top + (workspaceRect.height - centered.size.height) / 2,
       );
       expect(centered.position.dx, closeTo(expectedCenter.dx, 0.001));
       expect(centered.position.dy, closeTo(expectedCenter.dy, 0.001));
+    });
+
+    test(
+      'mantiene la imagen completamente dentro del workspace del visor',
+      () async {
+      final imagePath = await _writeTestJpg(
+        '${tempDir.path}${Platform.pathSeparator}clamp_inside_canvas.jpg',
+      );
+
+      bloc.add(ViewerStarted(imagePath: imagePath));
+      await _drainQueue();
+      await _waitForViewerIdle(bloc);
+
+      final image = bloc.state.frame.elements
+          .whereType<ImageFrameComponent>()
+          .first;
+
+      bloc.add(
+        ViewerElementMoved(
+          elementId: image.id,
+          position: const Offset(-500, -300),
+        ),
+      );
+      await _drainQueue();
+
+      final movedToOrigin = bloc.state.frame.elements
+          .whereType<ImageFrameComponent>()
+          .firstWhere((element) => element.id == image.id);
+      final workspaceRectAtOrigin = ViewerWorkspaceLayout.resolve(
+        bloc.state.frame.canvasSize,
+      );
+      expect(
+        movedToOrigin.position.dx,
+        greaterThanOrEqualTo(workspaceRectAtOrigin.left),
+      );
+      expect(
+        movedToOrigin.position.dy,
+        greaterThanOrEqualTo(workspaceRectAtOrigin.top),
+      );
+
+      final workspaceRect = ViewerWorkspaceLayout.resolve(
+        bloc.state.frame.canvasSize,
+      );
+      bloc.add(
+        ViewerElementMoved(
+          elementId: image.id,
+          position: const Offset(99999, 99999),
+        ),
+      );
+      await _drainQueue();
+
+      final movedToEdge = bloc.state.frame.elements
+          .whereType<ImageFrameComponent>()
+          .firstWhere((element) => element.id == image.id);
+      expect(
+        movedToEdge.position.dx,
+        lessThanOrEqualTo(workspaceRect.right - movedToEdge.size.width),
+      );
+      expect(
+        movedToEdge.position.dy,
+        lessThanOrEqualTo(workspaceRect.bottom - movedToEdge.size.height),
+      );
     });
 
     test('redimensiona hacia arriba/izquierda sin escalar contenido', () async {
@@ -428,9 +572,11 @@ void main() {
 
         bloc.add(const ViewerToolChanged(AnnotationType.arrow));
         await _drainQueue();
+        final startPoint = beforeMove.position + const Offset(20, 20);
+        final endPoint = beforeMove.position + const Offset(80, 60);
         bloc
-          ..add(const ViewerAnnotationStarted(Offset(320, 240)))
-          ..add(const ViewerAnnotationUpdated(Offset(380, 280)))
+          ..add(ViewerAnnotationStarted(startPoint))
+          ..add(ViewerAnnotationUpdated(endPoint))
           ..add(const ViewerAnnotationFinished());
         await _drainQueue();
 
@@ -454,27 +600,48 @@ void main() {
             .whereType<AnnotationElement>()
             .firstWhere((element) => element.id == annotation.id);
 
-        final frameSize = bloc.state.frame.canvasSize;
-        expect(movedImage.position.dx >= 0, isTrue);
-        expect(movedImage.position.dy >= 0, isTrue);
+        final workspaceRect = ViewerWorkspaceLayout.resolve(
+          bloc.state.frame.canvasSize,
+        );
         expect(
-          movedImage.position.dx + movedImage.size.width <= frameSize.width,
+          movedImage.position.dx + movedImage.size.width <= workspaceRect.right,
           isTrue,
         );
         expect(
-          movedImage.position.dy + movedImage.size.height <= frameSize.height,
+          movedImage.position.dy + movedImage.size.height <=
+              workspaceRect.bottom,
+          isTrue,
+        );
+        expect(
+          movedImage.position.dx >= workspaceRect.left,
+          isTrue,
+        );
+        expect(
+          movedImage.position.dy >= workspaceRect.top,
           isTrue,
         );
 
+        final projectedBefore = ViewerCompositionHelper.projectAnnotation(
+          [beforeMove, annotation],
+          annotation,
+        );
+        final projectedAfter = ViewerCompositionHelper.projectAnnotation(
+          [movedImage, movedAnnotation],
+          movedAnnotation,
+        );
         final delta = movedImage.position - beforeMove.position;
         expect(
-          (movedAnnotation.position.dx - annotation.position.dx - delta.dx)
+          (projectedAfter.position.dx -
+                      projectedBefore.position.dx -
+                      delta.dx)
                   .abs() <
               0.001,
           isTrue,
         );
         expect(
-          (movedAnnotation.position.dy - annotation.position.dy - delta.dy)
+          (projectedAfter.position.dy -
+                      projectedBefore.position.dy -
+                      delta.dy)
                   .abs() <
               0.001,
           isTrue,
@@ -491,8 +658,8 @@ void main() {
         final resizedImage = bloc.state.frame.elements
             .whereType<ImageFrameComponent>()
             .firstWhere((image) => image.id == movedImage.id);
-        expect(resizedImage.size.width <= frameSize.width, isTrue);
-        expect(resizedImage.size.height <= frameSize.height, isTrue);
+        expect(resizedImage.size.width <= workspaceRect.width, isTrue);
+        expect(resizedImage.size.height <= workspaceRect.height, isTrue);
       },
     );
 
@@ -544,6 +711,72 @@ void main() {
     });
 
     test(
+      'inserta imagenes dentro del frame seleccionado '
+      'y guarda como una sola salida',
+      () async {
+        final basePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}base_nested.jpg',
+        );
+        final extraPath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}extra_nested.jpg',
+        );
+
+        bloc.add(ViewerStarted(imagePath: basePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final baseImage = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        bloc.add(
+          ViewerElementResized(
+            elementId: baseImage.id,
+            size: const Size(420, 320),
+          ),
+        );
+        await _drainQueue();
+
+        bloc.add(
+          ViewerImageAdded(
+            imagePath: extraPath,
+            projectPath: tempDir.path,
+          ),
+        );
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final images = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .toList(growable: false);
+        expect(images.length, 2);
+
+        final root = images.firstWhere(
+          (image) => image.parentImageId == null,
+        );
+        final child = images.firstWhere(
+          (image) => image.parentImageId == root.id,
+        );
+        expect(
+          root.contentViewportRect.contains(child.frameRect.topLeft),
+          isTrue,
+        );
+        expect(
+          root.contentViewportRect.contains(child.frameRect.bottomRight),
+          isTrue,
+        );
+
+        bloc.add(const ViewerExportRequested());
+        await _waitForAutoSave(bloc);
+
+        expect(bloc.state.autoSavePath, basePath);
+        expect(
+          File('${_stripExtension(basePath)}_compuesto.jpg').existsSync(),
+          isFalse,
+        );
+      },
+    );
+
+    test(
       'con multiples imagenes genera compuesto adicional y conserva original',
       () async {
         final basePath = await _writeTestJpg(
@@ -554,6 +787,10 @@ void main() {
         );
 
         bloc.add(ViewerStarted(imagePath: basePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        bloc.add(const ViewerElementSelected());
         await _drainQueue();
 
         bloc.add(

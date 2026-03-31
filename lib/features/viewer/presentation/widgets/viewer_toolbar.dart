@@ -62,94 +62,162 @@ class ViewerToolbar extends StatelessWidget {
         icon: Icons.near_me,
         tooltip: 'Cursor',
         selected: state.activeTool == AnnotationType.selection,
+        label: 'Cursor',
         onPressed: () => _setTool(context, AnnotationType.selection),
       ),
       const ViewerToolbarGroupSeparator(),
-      ViewerToolbarToolButton(
-        icon: Icons.arrow_right_alt,
-        tooltip: 'Flecha',
-        selected: state.activeTool == AnnotationType.arrow,
-        onPressed: () => _setTool(context, AnnotationType.arrow),
-      ),
-      ViewerToolbarToolButton(
-        icon: Icons.rectangle_outlined,
-        tooltip: 'Rectangulo',
-        selected: state.activeTool == AnnotationType.rectangle,
-        onPressed: () => _setTool(context, AnnotationType.rectangle),
-      ),
-      ViewerToolbarToolButton(
-        icon: Icons.circle_outlined,
-        tooltip: 'Circulo',
-        selected: state.activeTool == AnnotationType.circle,
-        onPressed: () => _setTool(context, AnnotationType.circle),
-      ),
-      const ViewerToolbarGroupSeparator(),
-      ViewerToolbarToolButton(
-        icon: Icons.text_fields,
-        tooltip: 'Texto',
-        selected: state.activeTool == AnnotationType.text,
-        onPressed: () => _setTool(context, AnnotationType.text),
-      ),
-      ViewerToolbarToolButton(
-        icon: Icons.mode_comment_outlined,
-        tooltip: 'Burbuja',
-        selected: state.activeTool == AnnotationType.commentBubble,
-        onPressed: () => _setTool(context, AnnotationType.commentBubble),
-      ),
-      const ViewerToolbarGroupSeparator(),
-      ViewerToolbarToolButton(
-        icon: Icons.format_list_numbered_rounded,
-        tooltip: 'Numerador',
-        selected: state.activeTool == AnnotationType.stepMarker,
-        onPressed: () => _setTool(context, AnnotationType.stepMarker),
+      ViewerToolbarMenuButton<AnnotationType>(
+        icon: _shapeToolIcon(state.activeTool),
+        label: 'Formas',
+        tooltip: 'Formas',
+        selected: _isShapeTool(state.activeTool),
+        onSelected: (tool) => _setTool(context, tool),
+        items: const [
+          PopupMenuItem<AnnotationType>(
+            value: AnnotationType.arrow,
+            child: _ViewerToolbarMenuItem(
+              icon: Icons.arrow_right_alt,
+              label: 'Flecha',
+            ),
+          ),
+          PopupMenuItem<AnnotationType>(
+            value: AnnotationType.rectangle,
+            child: _ViewerToolbarMenuItem(
+              icon: Icons.rectangle_outlined,
+              label: 'Rectangulo',
+            ),
+          ),
+          PopupMenuItem<AnnotationType>(
+            value: AnnotationType.circle,
+            child: _ViewerToolbarMenuItem(
+              icon: Icons.circle_outlined,
+              label: 'Circulo',
+            ),
+          ),
+        ],
       ),
       const ViewerToolbarGroupSeparator(),
-      ViewerToolbarToolButton(
-        icon: Icons.blur_on_outlined,
-        tooltip: 'Blur',
-        selected: state.activeTool == AnnotationType.blur,
-        onPressed: () => _setTool(context, AnnotationType.blur),
+      ViewerToolbarMenuButton<AnnotationType>(
+        icon: _commentToolIcon(state.activeTool),
+        label: 'Comentarios',
+        tooltip: 'Comentarios',
+        selected: _isCommentTool(state.activeTool),
+        onSelected: (tool) => _setTool(context, tool),
+        items: const [
+          PopupMenuItem<AnnotationType>(
+            value: AnnotationType.text,
+            child: _ViewerToolbarMenuItem(
+              icon: Icons.text_fields,
+              label: 'Texto',
+            ),
+          ),
+          PopupMenuItem<AnnotationType>(
+            value: AnnotationType.commentBubble,
+            child: _ViewerToolbarMenuItem(
+              icon: Icons.mode_comment_outlined,
+              label: 'Burbuja',
+            ),
+          ),
+          PopupMenuItem<AnnotationType>(
+            value: AnnotationType.stepMarker,
+            child: _ViewerToolbarMenuItem(
+              icon: Icons.format_list_numbered_rounded,
+              label: 'Numerador',
+            ),
+          ),
+        ],
       ),
       const ViewerToolbarGroupSeparator(),
-      ViewerToolbarToolButton(
-        icon: Icons.undo,
-        tooltip: 'Deshacer (Ctrl+Z)',
-        selected: false,
-        onPressed: () => context.read<ViewerBloc>().add(
-          const ViewerUndoRequested(),
-        ),
+      ViewerToolbarMenuButton<AnnotationType>(
+        icon: _markupToolIcon(state.activeTool),
+        label: 'Marcado',
+        tooltip: 'Marcado',
+        selected: _isMarkupTool(state.activeTool),
+        onSelected: (tool) => _setTool(context, tool),
+        items: const [
+          PopupMenuItem<AnnotationType>(
+            value: AnnotationType.highlighter,
+            child: _ViewerToolbarMenuItem(
+              icon: Icons.highlight_alt_outlined,
+              label: 'Highlighter',
+            ),
+          ),
+          PopupMenuItem<AnnotationType>(
+            value: AnnotationType.pencil,
+            child: _ViewerToolbarMenuItem(
+              icon: Icons.edit_outlined,
+              label: 'Lapiz',
+            ),
+          ),
+          PopupMenuItem<AnnotationType>(
+            value: AnnotationType.blur,
+            child: _ViewerToolbarMenuItem(
+              icon: Icons.blur_on_outlined,
+              label: 'Blur',
+            ),
+          ),
+          PopupMenuItem<AnnotationType>(
+            value: AnnotationType.eraser,
+            child: _ViewerToolbarMenuItem(
+              icon: Icons.cleaning_services_outlined,
+              label: 'Borrador',
+            ),
+          ),
+        ],
       ),
-      ViewerToolbarToolButton(
-        icon: Icons.redo,
-        tooltip: 'Rehacer (Ctrl+Y)',
-        selected: false,
-        onPressed: () => context.read<ViewerBloc>().add(
-          const ViewerRedoRequested(),
-        ),
+      const ViewerToolbarGroupSeparator(),
+      ViewerToolbarActionCluster(
+        children: [
+          ViewerToolbarToolButton(
+            icon: Icons.undo,
+            tooltip: 'Deshacer (Ctrl+Z)',
+            selected: false,
+            framed: false,
+            onPressed: () => context.read<ViewerBloc>().add(
+              const ViewerUndoRequested(),
+            ),
+          ),
+          ViewerToolbarToolButton(
+            icon: Icons.redo,
+            tooltip: 'Rehacer (Ctrl+Y)',
+            selected: false,
+            framed: false,
+            onPressed: () => context.read<ViewerBloc>().add(
+              const ViewerRedoRequested(),
+            ),
+          ),
+        ],
       ),
       const ViewerToolbarGroupSeparator(),
       ViewerToolbarToolButton(
         icon: Icons.add_photo_alternate_outlined,
         tooltip: 'Agregar imagen',
         selected: false,
+        label: 'Imagen',
         onPressed: () => _pickAndAddImage(context, state),
       ),
       const ViewerToolbarGroupSeparator(),
-      ViewerToolbarToolButton(
-        icon: Icons.copy,
-        tooltip: 'Copiar al portapapeles',
-        selected: false,
-        onPressed: () => context.read<ViewerBloc>().add(
-          const ViewerCopyRequested(),
-        ),
-      ),
-      ViewerToolbarToolButton(
-        icon: Icons.share,
-        tooltip: 'Compartir',
-        selected: false,
-        onPressed: () => context.read<ViewerBloc>().add(
-          const ViewerShareRequested(),
-        ),
+      ViewerToolbarActionCluster(
+        children: [
+          ViewerToolbarToolButton(
+            icon: Icons.copy,
+            tooltip: 'Copiar al portapapeles',
+            selected: false,
+            framed: false,
+            onPressed: () => context.read<ViewerBloc>().add(
+              const ViewerCopyRequested(),
+            ),
+          ),
+          ViewerToolbarToolButton(
+            icon: Icons.share,
+            tooltip: 'Compartir',
+            selected: false,
+            framed: false,
+            onPressed: () => context.read<ViewerBloc>().add(
+              const ViewerShareRequested(),
+            ),
+          ),
+        ],
       ),
       const ViewerToolbarGroupSeparator(),
       Tooltip(
@@ -195,6 +263,50 @@ class ViewerToolbar extends StatelessWidget {
     }
   }
 
+  bool _isShapeTool(AnnotationType tool) {
+    return tool == AnnotationType.arrow ||
+        tool == AnnotationType.rectangle ||
+        tool == AnnotationType.circle;
+  }
+
+  bool _isCommentTool(AnnotationType tool) {
+    return tool == AnnotationType.text ||
+        tool == AnnotationType.commentBubble ||
+        tool == AnnotationType.stepMarker;
+  }
+
+  bool _isMarkupTool(AnnotationType tool) {
+    return tool == AnnotationType.highlighter ||
+        tool == AnnotationType.pencil ||
+        tool == AnnotationType.blur ||
+        tool == AnnotationType.eraser;
+  }
+
+  IconData _shapeToolIcon(AnnotationType tool) {
+    return switch (tool) {
+      AnnotationType.arrow => Icons.arrow_right_alt,
+      AnnotationType.circle => Icons.circle_outlined,
+      _ => Icons.rectangle_outlined,
+    };
+  }
+
+  IconData _commentToolIcon(AnnotationType tool) {
+    return switch (tool) {
+      AnnotationType.commentBubble => Icons.mode_comment_outlined,
+      AnnotationType.stepMarker => Icons.format_list_numbered_rounded,
+      _ => Icons.text_fields,
+    };
+  }
+
+  IconData _markupToolIcon(AnnotationType tool) {
+    return switch (tool) {
+      AnnotationType.highlighter => Icons.highlight_alt_outlined,
+      AnnotationType.pencil => Icons.edit_outlined,
+      AnnotationType.eraser => Icons.cleaning_services_outlined,
+      _ => Icons.blur_on_outlined,
+    };
+  }
+
   Future<void> _pickAndAddImage(BuildContext context, ViewerState state) async {
     final result = await FilePicker.platform.pickFiles(type: FileType.image);
     final path = result?.files.single.path;
@@ -233,6 +345,31 @@ class ViewerToolbar extends StatelessWidget {
       borderColor: kDefaultViewerFrameBorderColor,
       borderWidth: kDefaultViewerFrameBorderWidth,
       padding: kDefaultViewerFramePadding,
+    );
+  }
+}
+
+class _ViewerToolbarMenuItem extends StatelessWidget {
+  const _ViewerToolbarMenuItem({
+    required this.icon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18, color: Colors.white70),
+        const SizedBox(width: 10),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white),
+        ),
+      ],
     );
   }
 }

@@ -29,9 +29,10 @@ class ViewerPage extends StatefulWidget {
 }
 
 class _ViewerPageState extends State<ViewerPage> {
-  static const double _minZoom = 0.5;
-  double _zoom = 1;
+  static const double _minZoom = 0.1;
   Size? _lastRequestedFrameSize;
+  Size _lastViewportSize = Size.zero;
+  String? _lastAutoFitImageId;
 
   @override
   Widget build(BuildContext context) {
@@ -105,6 +106,10 @@ class _ViewerPageState extends State<ViewerPage> {
                                   onPointerSignal: _onPointerSignal,
                                   child: LayoutBuilder(
                                     builder: (context, constraints) {
+                                      _lastViewportSize = Size(
+                                        constraints.maxWidth,
+                                        constraints.maxHeight,
+                                      );
                                       final targetWidth = math
                                           .max(
                                             320,
@@ -127,31 +132,36 @@ class _ViewerPageState extends State<ViewerPage> {
                                         currentSize: state.frame.canvasSize,
                                       );
                                       final maxZoom = _maxZoomForState(state);
-                                      final effectiveZoom = _zoom.clamp(
-                                        _minZoom,
-                                        maxZoom,
+                                      final fitZoom = _fitZoomForState(
+                                        state,
+                                        _lastViewportSize,
                                       );
-                                      _syncZoomIfNeeded(effectiveZoom);
+                                      _autoFitPrimaryImageIfNeeded(
+                                        state,
+                                        fitZoom,
+                                      );
+                                      final effectiveZoom = state.canvasZoom
+                                          .clamp(_minZoom, maxZoom);
 
-                                      return Center(
-                                        child: ViewerCanvasDropTarget(
-                                          frameSize: state.frame.canvasSize,
-                                          contentZoom: effectiveZoom,
-                                          child: DecoratedBox(
-                                            decoration: BoxDecoration(
-                                              boxShadow: const [
-                                                BoxShadow(
-                                                  color: Colors.black38,
-                                                  blurRadius: 20,
-                                                ),
-                                              ],
-                                              borderRadius:
-                                                  BorderRadius.circular(
-                                                    6,
+                                      return ClipRect(
+                                        child: Center(
+                                          child: ViewerCanvasDropTarget(
+                                            child: DecoratedBox(
+                                              decoration: BoxDecoration(
+                                                boxShadow: const [
+                                                  BoxShadow(
+                                                    color: Colors.black38,
+                                                    blurRadius: 20,
                                                   ),
-                                            ),
-                                            child: ViewerCanvas(
-                                              contentZoom: effectiveZoom,
+                                                ],
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                      6,
+                                                    ),
+                                              ),
+                                              child: ViewerCanvas(
+                                                contentZoom: effectiveZoom,
+                                              ),
                                             ),
                                           ),
                                         ),
@@ -164,13 +174,18 @@ class _ViewerPageState extends State<ViewerPage> {
                                   state.frame.elements.isEmpty)
                                 const ViewerEmptyStateOverlay(),
                               ViewerZoomControls(
-                                zoom: _zoom.clamp(
+                                zoom: state.canvasZoom.clamp(
                                   _minZoom,
                                   _maxZoomForState(state),
                                 ),
+                                fitZoom: _fitZoomForState(
+                                  state,
+                                  _lastViewportSize,
+                                ),
+                                onFitToScreen: () => _fitToScreen(state),
+                                onActualSize: () => _setActualSize(state),
                                 onZoomIn: () => _zoomIn(state),
                                 onZoomOut: () => _zoomOut(state),
-                                onReset: _resetZoom,
                               ),
                             ],
                           ),
@@ -222,22 +237,28 @@ class _ViewerPageState extends State<ViewerPage> {
 
   void _zoomIn(ViewerState state) {
     final maxZoom = _maxZoomForState(state);
-    setState(() {
-      _zoom = (_zoom + 0.1).clamp(_minZoom, maxZoom);
-    });
+    context.read<ViewerBloc>().add(
+      ViewerZoomChanged((state.canvasZoom + 0.1).clamp(_minZoom, maxZoom)),
+    );
   }
 
   void _zoomOut(ViewerState state) {
     final maxZoom = _maxZoomForState(state);
-    setState(() {
-      _zoom = (_zoom - 0.1).clamp(_minZoom, maxZoom);
-    });
+    context.read<ViewerBloc>().add(
+      ViewerZoomChanged((state.canvasZoom - 0.1).clamp(_minZoom, maxZoom)),
+    );
   }
 
-  void _resetZoom() {
-    setState(() {
-      _zoom = 1;
-    });
+  void _setActualSize(ViewerState state) {
+    final maxZoom = _maxZoomForState(state);
+    context.read<ViewerBloc>().add(
+      ViewerZoomChanged(1.clamp(_minZoom, maxZoom).toDouble()),
+    );
+  }
+
+  void _fitToScreen(ViewerState state) {
+    final fitZoom = _fitZoomForState(state, _lastViewportSize);
+    context.read<ViewerBloc>().add(ViewerZoomChanged(fitZoom));
   }
 
   void _onPointerSignal(PointerSignalEvent event) {
@@ -254,62 +275,52 @@ class _ViewerPageState extends State<ViewerPage> {
 
   double _maxZoomForState(ViewerState state) {
     const hardMax = 3.0;
-    final image = _imageForZoomConstraint(state);
-    if (image == null) return hardMax;
-    final frameRect = Offset.zero & state.frame.canvasSize;
-    final imageRect = image.position & image.size;
-    final center = frameRect.center;
-
-    var cap = hardMax;
-
-    if (imageRect.left < center.dx) {
-      final denominator = center.dx - imageRect.left;
-      if (denominator > 0) {
-        cap = math.min(cap, center.dx / denominator);
-      }
-    }
-    if (imageRect.right > center.dx) {
-      final denominator = imageRect.right - center.dx;
-      if (denominator > 0) {
-        cap = math.min(cap, (frameRect.right - center.dx) / denominator);
-      }
-    }
-    if (imageRect.top < center.dy) {
-      final denominator = center.dy - imageRect.top;
-      if (denominator > 0) {
-        cap = math.min(cap, center.dy / denominator);
-      }
-    }
-    if (imageRect.bottom > center.dy) {
-      final denominator = imageRect.bottom - center.dy;
-      if (denominator > 0) {
-        cap = math.min(cap, (frameRect.bottom - center.dy) / denominator);
-      }
+    final image = _fitTargetImage(state);
+    if (image == null) {
+      return hardMax;
     }
 
-    if (!cap.isFinite) return hardMax;
-    return cap.clamp(1.0, hardMax);
+    final maxWidthZoom = state.frame.canvasSize.width / image.size.width;
+    final maxHeightZoom = state.frame.canvasSize.height / image.size.height;
+    final limit = math.min(maxWidthZoom, maxHeightZoom);
+    if (!limit.isFinite) {
+      return hardMax;
+    }
+    return limit.clamp(_minZoom, hardMax);
   }
 
-  ImageFrameComponent? _imageForZoomConstraint(ViewerState state) {
-    final selectedId = state.selectedElementId;
-    if (selectedId != null) {
-      for (final element in state.frame.elements) {
-        if (element.id == selectedId && element is ImageFrameComponent) {
-          return element;
-        }
-      }
+  double _fitZoomForState(ViewerState state, Size viewportSize) {
+    final image = _fitTargetImage(state);
+    if (image == null || viewportSize == Size.zero) {
+      return 1;
     }
+
+    const padding = 48.0;
+    final availableWidth = math.max(1, viewportSize.width - padding);
+    final availableHeight = math.max(1, viewportSize.height - padding);
+    final fitZoom = math.min(
+      availableWidth / image.size.width,
+      availableHeight / image.size.height,
+    );
+
+    return fitZoom.clamp(_minZoom, _maxZoomForState(state));
+  }
+  ImageFrameComponent? _fitTargetImage(ViewerState state) {
     return state.frame.elements.whereType<ImageFrameComponent>().firstOrNull;
   }
 
-  void _syncZoomIfNeeded(double effectiveZoom) {
-    if ((_zoom - effectiveZoom).abs() < 0.001) return;
+  void _autoFitPrimaryImageIfNeeded(ViewerState state, double fitZoom) {
+    final image = _fitTargetImage(state);
+    if (image == null) {
+      _lastAutoFitImageId = null;
+      return;
+    }
+    if (_lastAutoFitImageId == image.id) return;
+
+    _lastAutoFitImageId = image.id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      setState(() {
-        _zoom = effectiveZoom;
-      });
+      context.read<ViewerBloc>().add(ViewerZoomChanged(fitZoom));
     });
   }
 }

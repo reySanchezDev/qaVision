@@ -35,9 +35,7 @@ class ViewerCanvasPainter extends CustomPainter {
         .where((element) => element.id == selectedElementId)
         .firstOrNull;
     if (selected == null) return;
-    _paintWithContentTransform(canvas, frame.canvasSize, () {
-      _drawSelection(canvas, selected);
-    });
+    _drawSelection(canvas, selected);
   }
 
   void _drawFrameOutline(Canvas canvas, Size frameSize) {
@@ -51,7 +49,11 @@ class ViewerCanvasPainter extends CustomPainter {
   }
 
   void _drawSelection(Canvas canvas, CanvasElement element) {
-    final bounds = ViewerCanvasInteractionService.selectionBounds(element);
+    final bounds = ViewerCanvasInteractionService.selectionBounds(
+      element,
+      elements: frame.elements,
+      zoom: contentZoom,
+    );
     final outline = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.8
@@ -79,28 +81,6 @@ class ViewerCanvasPainter extends CustomPainter {
     for (final mid in midPoints) {
       canvas.drawCircle(mid, 5, handle);
     }
-  }
-
-  void _paintWithContentTransform(
-    Canvas canvas,
-    Size frameSize,
-    VoidCallback paint,
-  ) {
-    if ((contentZoom - 1).abs() <= 0.001) {
-      paint();
-      return;
-    }
-
-    final frameRect = Offset.zero & frameSize;
-    final center = frameRect.center;
-    canvas
-      ..save()
-      ..clipRect(frameRect)
-      ..translate(center.dx, center.dy)
-      ..scale(contentZoom)
-      ..translate(-center.dx, -center.dy);
-    paint();
-    canvas.restore();
   }
 
   @override

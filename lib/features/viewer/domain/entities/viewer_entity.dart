@@ -36,6 +36,15 @@ enum AnnotationType {
   selection,
 }
 
+/// Espacio geométrico donde vive una anotación.
+enum AnnotationCoordinateSpace {
+  /// Coordenadas absolutas del workspace.
+  workspace,
+
+  /// Coordenadas relativas al contenido interno de una imagen.
+  imageContent,
+}
+
 /// Base class for any drawable element inside the frame canvas.
 abstract class CanvasElement {
   /// Creates a [CanvasElement].
@@ -71,6 +80,7 @@ class AnnotationElement extends CanvasElement {
     this.textSize = 18,
     this.opacity = 1.0,
     this.attachedImageId,
+    this.coordinateSpace = AnnotationCoordinateSpace.workspace,
   });
 
   /// Annotation type.
@@ -100,6 +110,9 @@ class AnnotationElement extends CanvasElement {
   /// Owning image id when annotation was created on top of an image.
   final String? attachedImageId;
 
+  /// Espacio geométrico donde se interpretan sus coordenadas.
+  final AnnotationCoordinateSpace coordinateSpace;
+
   /// Creates a copy with updated fields.
   AnnotationElement copyWith({
     String? id,
@@ -116,6 +129,7 @@ class AnnotationElement extends CanvasElement {
     double? opacity,
     String? attachedImageId,
     bool clearAttachedImageId = false,
+    AnnotationCoordinateSpace? coordinateSpace,
   }) {
     return AnnotationElement(
       id: id ?? this.id,
@@ -132,6 +146,7 @@ class AnnotationElement extends CanvasElement {
       attachedImageId: clearAttachedImageId
           ? null
           : (attachedImageId ?? this.attachedImageId),
+      coordinateSpace: coordinateSpace ?? this.coordinateSpace,
     );
   }
 }

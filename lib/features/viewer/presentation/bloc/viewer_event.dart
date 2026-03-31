@@ -114,6 +114,18 @@ final class ViewerCanvasResized extends ViewerEvent {
   List<Object?> get props => [size];
 }
 
+/// Cambia el zoom visual del contenido dentro del workspace.
+final class ViewerZoomChanged extends ViewerEvent {
+  /// Creates [ViewerZoomChanged].
+  const ViewerZoomChanged(this.zoom);
+
+  /// Nuevo zoom visual.
+  final double zoom;
+
+  @override
+  List<Object?> get props => [zoom];
+}
+
 /// Starts drawing annotation.
 final class ViewerAnnotationStarted extends ViewerEvent {
   /// Creates [ViewerAnnotationStarted].

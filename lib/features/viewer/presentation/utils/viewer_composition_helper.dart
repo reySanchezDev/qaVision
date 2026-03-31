@@ -5,9 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:qavision/core/utils/drawing_helpers.dart';
 import 'package:qavision/features/viewer/domain/entities/image_frame_component.dart';
 import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
+import 'package:qavision/features/viewer/presentation/utils/viewer_workspace_layout.dart';
 
 /// Shared rendering helpers for viewer canvas and export composition.
 class ViewerCompositionHelper {
+  static const Color _kFrameVoidColor = Color(0xFF101010);
+  static const Color _kWorkspaceBaseColor = Color(0xFF101010);
+  static const Color _kWorkspaceSurfaceColor = Color(0xFF1A1D22);
+  static const Color _kWorkspaceBorderColor = Color(0x22FFFFFF);
+
   /// Paints the complete frame.
   static void paintFrame(
     ui.Canvas canvas,
@@ -17,58 +23,98 @@ class ViewerCompositionHelper {
   }) {
     canvas.drawRect(
       Offset.zero & frame.canvasSize,
-      Paint()..color = Color(frame.backgroundColor),
+      Paint()
+        ..color = forExport
+            ? Color(frame.backgroundColor)
+            : _kWorkspaceBaseColor,
     );
+
+    if (!forExport) {
+      final workspaceRect = ViewerWorkspaceLayout.resolve(frame.canvasSize);
+      canvas
+        ..drawRect(
+          workspaceRect,
+          Paint()..color = _kWorkspaceSurfaceColor,
+        )
+        ..drawRect(
+          workspaceRect,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1
+            ..color = _kWorkspaceBorderColor,
+        );
+    }
 
     final sorted = List<CanvasElement>.from(frame.elements)
       ..sort((a, b) => a.zIndex.compareTo(b.zIndex));
 
-    final useZoom = !forExport && (contentZoom - 1).abs() > 0.001;
-    if (useZoom) {
-      final frameRect = Offset.zero & frame.canvasSize;
-      final center = frameRect.center;
-      canvas
-        ..save()
-        ..clipRect(frameRect)
-        ..translate(center.dx, center.dy)
-        ..scale(contentZoom)
-        ..translate(-center.dx, -center.dy);
-    }
-
     for (final element in sorted) {
       if (element is ImageFrameComponent) {
-        _drawImage(canvas, element, forExport: forExport);
+        _drawImage(
+          canvas,
+          element,
+          forExport: forExport,
+          displayScale: forExport ? 1 : contentZoom,
+        );
       } else if (element is AnnotationElement) {
-        _drawAnnotation(canvas, element);
+        _drawAnnotation(
+          canvas,
+          frame.elements,
+          element,
+          imageZoom: forExport ? 1 : contentZoom,
+        );
       }
-    }
-
-    if (useZoom) {
-      canvas.restore();
     }
   }
 
   /// Returns the visual bounds of any element.
-  static Rect elementBounds(CanvasElement element) {
+  static Rect elementBounds(
+    CanvasElement element, {
+    List<CanvasElement>? elements,
+    double imageZoom = 1,
+  }) {
     if (element is ImageFrameComponent) {
-      return imageFrameRect(element);
+      return imageFrameRect(element, imageZoom: imageZoom);
     }
 
     if (element is AnnotationElement) {
-      return annotationBounds(element);
+      return annotationBounds(
+        element,
+        elements: elements,
+        imageZoom: imageZoom,
+      );
     }
 
     return Rect.zero;
   }
 
   /// Outer frame rect for an image element.
-  static Rect imageFrameRect(ImageFrameComponent element) {
-    return element.frameRect;
+  static Rect imageFrameRect(
+    ImageFrameComponent element, {
+    double imageZoom = 1,
+  }) {
+    final scale = imageZoom.clamp(0.1, 10.0);
+    return Rect.fromLTWH(
+      element.position.dx,
+      element.position.dy,
+      element.size.width * scale,
+      element.size.height * scale,
+    );
   }
 
   /// Effective inner viewport rect where image content is clipped.
-  static Rect imageContentViewportRect(ImageFrameComponent element) {
-    return element.contentViewportRect;
+  static Rect imageContentViewportRect(
+    ImageFrameComponent element, {
+    double imageZoom = 1,
+  }) {
+    final frameRect = imageFrameRect(element, imageZoom: imageZoom);
+    final padding = element.clampedPadding * imageZoom.clamp(0.1, 10.0);
+    return Rect.fromLTWH(
+      frameRect.left + padding,
+      frameRect.top + padding,
+      math.max(1, frameRect.width - (padding * 2)),
+      math.max(1, frameRect.height - (padding * 2)),
+    );
   }
 
   /// Clamps image content offset so content always intersects the viewport.
@@ -80,42 +126,154 @@ class ViewerCompositionHelper {
   }
 
   /// Draw rect for image content inside its frame viewport.
-  static Rect imageDrawRect(ImageFrameComponent element) {
-    return element.imageDrawRect;
+  static Rect imageDrawRect(
+    ImageFrameComponent element, {
+    double imageZoom = 1,
+  }) {
+    final scale = imageZoom.clamp(0.1, 10.0);
+    final viewport = imageContentViewportRect(element, imageZoom: scale);
+    final boundedOffset = element.clampContentOffset(element.contentOffset);
+    return Rect.fromLTWH(
+      viewport.left + boundedOffset.dx * scale,
+      viewport.top + boundedOffset.dy * scale,
+      element.contentSize.width * scale,
+      element.contentSize.height * scale,
+    );
+  }
+
+  /// Busca la imagen dueña de una anotación adjunta.
+  static ImageFrameComponent? findAttachedImage(
+    List<CanvasElement> elements,
+    AnnotationElement annotation,
+  ) {
+    final attachedId = annotation.attachedImageId;
+    if (attachedId == null || attachedId.isEmpty) {
+      return null;
+    }
+
+    for (final element in elements) {
+      if (element is ImageFrameComponent && element.id == attachedId) {
+        return element;
+      }
+    }
+    return null;
+  }
+
+  /// Convierte un punto visible del canvas al espacio interno de la imagen.
+  static Offset canvasPointToImageContent(
+    ImageFrameComponent image,
+    Offset canvasPoint, {
+    double imageZoom = 1,
+  }) {
+    final scale = imageZoom.clamp(0.1, 10.0);
+    final drawRect = imageDrawRect(image, imageZoom: scale);
+    return Offset(
+      (canvasPoint.dx - drawRect.left) / scale,
+      (canvasPoint.dy - drawRect.top) / scale,
+    );
+  }
+
+  /// Convierte un punto del espacio interno de la imagen al canvas visible.
+  static Offset imageContentPointToCanvas(
+    ImageFrameComponent image,
+    Offset imageContentPoint, {
+    double imageZoom = 1,
+  }) {
+    final scale = imageZoom.clamp(0.1, 10.0);
+    final drawRect = imageDrawRect(image, imageZoom: scale);
+    return Offset(
+      drawRect.left + (imageContentPoint.dx * scale),
+      drawRect.top + (imageContentPoint.dy * scale),
+    );
+  }
+
+  /// Proyecta una anotación al canvas visible respetando su espacio geométrico.
+  static AnnotationElement projectAnnotation(
+    List<CanvasElement> elements,
+    AnnotationElement element, {
+    double imageZoom = 1,
+  }) {
+    if (element.coordinateSpace != AnnotationCoordinateSpace.imageContent) {
+      return element;
+    }
+
+    final attachedImage = findAttachedImage(elements, element);
+    if (attachedImage == null) {
+      return element.copyWith(
+        coordinateSpace: AnnotationCoordinateSpace.workspace,
+      );
+    }
+
+    return element.copyWith(
+      position: imageContentPointToCanvas(
+        attachedImage,
+        element.position,
+        imageZoom: imageZoom,
+      ),
+      endPosition: element.endPosition == null
+          ? null
+          : imageContentPointToCanvas(
+              attachedImage,
+              element.endPosition!,
+              imageZoom: imageZoom,
+            ),
+      points: element.points
+          .map(
+            (point) => imageContentPointToCanvas(
+              attachedImage,
+              point,
+              imageZoom: imageZoom,
+            ),
+          )
+          .toList(growable: false),
+      coordinateSpace: AnnotationCoordinateSpace.workspace,
+    );
   }
 
   /// Returns the visual bounds of an annotation.
-  static Rect annotationBounds(AnnotationElement element) {
-    final strokePadding = math.max(6, element.strokeWidth).toDouble();
+  static Rect annotationBounds(
+    AnnotationElement element, {
+    List<CanvasElement>? elements,
+    double imageZoom = 1,
+  }) {
+    final projected = elements == null
+        ? element
+        : projectAnnotation(
+            elements,
+            element,
+            imageZoom: imageZoom,
+          );
+    final strokePadding = math.max(6, projected.strokeWidth).toDouble();
 
-    if (element.type == AnnotationType.stepMarker) {
-      return Rect.fromCircle(center: element.position, radius: 20);
+    if (projected.type == AnnotationType.stepMarker) {
+      return Rect.fromCircle(center: projected.position, radius: 20);
     }
 
-    if (element.type == AnnotationType.text ||
-        element.type == AnnotationType.commentBubble) {
-      final textSize = math.max(12, element.textSize).toDouble();
+    if (projected.type == AnnotationType.text ||
+        projected.type == AnnotationType.commentBubble) {
+      final textSize = math.max(12, projected.textSize).toDouble();
       final width = math
-          .max(40, element.text.length * textSize * 0.58)
+          .max(40, projected.text.length * textSize * 0.58)
           .toDouble();
       final height = textSize * 1.55;
       final base = Rect.fromLTWH(
-        element.position.dx,
-        element.position.dy,
+        projected.position.dx,
+        projected.position.dy,
         width,
         height,
       );
-      return element.type == AnnotationType.commentBubble
+      return projected.type == AnnotationType.commentBubble
           ? base.inflate(8)
           : base.inflate(4);
     }
 
-    if (element.type == AnnotationType.pencil && element.points.isNotEmpty) {
-      var minX = element.points.first.dx;
-      var minY = element.points.first.dy;
-      var maxX = element.points.first.dx;
-      var maxY = element.points.first.dy;
-      for (final point in element.points.skip(1)) {
+    if (projected.type == AnnotationType.pencil &&
+        projected.points.isNotEmpty) {
+      var minX = projected.points.first.dx;
+      var minY = projected.points.first.dy;
+      var maxX = projected.points.first.dx;
+      var maxY = projected.points.first.dy;
+      for (final point in projected.points.skip(1)) {
         minX = math.min(minX, point.dx);
         minY = math.min(minY, point.dy);
         maxX = math.max(maxX, point.dx);
@@ -124,14 +282,15 @@ class ViewerCompositionHelper {
       return Rect.fromLTRB(minX, minY, maxX, maxY).inflate(strokePadding);
     }
 
-    if (element.endPosition != null) {
-      return _normalizedRect(element.position, element.endPosition!).inflate(
-        strokePadding,
-      );
+    if (projected.endPosition != null) {
+      return _normalizedRect(
+        projected.position,
+        projected.endPosition!,
+      ).inflate(strokePadding);
     }
 
     return Rect.fromCenter(
-      center: element.position,
+      center: projected.position,
       width: 36,
       height: 36,
     );
@@ -141,8 +300,13 @@ class ViewerCompositionHelper {
     ui.Canvas canvas,
     ImageFrameComponent component, {
     required bool forExport,
+    required double displayScale,
   }) {
-    final frameRect = component.frameRect;
+    final frameRect = imageFrameRect(component, imageZoom: displayScale);
+    final contentRect = imageContentViewportRect(
+      component,
+      imageZoom: displayScale,
+    );
     final rawBackgroundOpacity = component.style.backgroundOpacity.clamp(
       0.0,
       1.0,
@@ -152,22 +316,28 @@ class ViewerCompositionHelper {
         : Color(component.style.backgroundColor).withValues(
             alpha: rawBackgroundOpacity,
           );
+    final frameVoidColor = forExport
+        ? const Color(0xFF101010)
+        : _kFrameVoidColor;
+    final frameSurfaceColor = rawBackgroundOpacity > 0.01
+        ? frameBackgroundColor
+        : frameVoidColor;
+
     canvas.drawRect(
       frameRect,
       Paint()
         ..style = PaintingStyle.fill
-        ..color = frameBackgroundColor,
+        ..color = frameSurfaceColor,
     );
 
-    final contentRect = component.contentViewportRect;
-
-    canvas
-      ..save()
-      ..clipRect(contentRect);
+    // ignore: cascade_invocations, separate calls read clearer around clip setup
+    canvas.save();
+    // ignore: cascade_invocations, separate calls read clearer around clip setup
+    canvas.clipRect(contentRect);
 
     if (component.image is ui.Image) {
       final uiImage = component.image as ui.Image;
-      final drawRect = component.imageDrawRect;
+      final drawRect = imageDrawRect(component, imageZoom: displayScale);
       canvas.drawImageRect(
         uiImage,
         Rect.fromLTWH(
@@ -193,80 +363,101 @@ class ViewerCompositionHelper {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = component.style.borderWidth
-          ..color = Color(component.style.borderColor),
+        ..color = Color(component.style.borderColor),
       );
     }
   }
 
-  static void _drawAnnotation(ui.Canvas canvas, AnnotationElement element) {
+  static void _drawAnnotation(
+    ui.Canvas canvas,
+    List<CanvasElement> elements,
+    AnnotationElement element, {
+    required double imageZoom,
+  }) {
+    final projected = projectAnnotation(
+      elements,
+      element,
+      imageZoom: imageZoom,
+    );
     final strokePaint = Paint()
-      ..color = Color(element.color)
+      ..color = Color(projected.color)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = element.strokeWidth
+      ..strokeWidth = projected.strokeWidth
       ..strokeCap = ui.StrokeCap.round
       ..strokeJoin = ui.StrokeJoin.round;
-    final normalizedOpacity = element.opacity.clamp(0.05, 1.0);
+    final normalizedOpacity = projected.opacity.clamp(0.05, 1.0);
 
-    switch (element.type) {
+    switch (projected.type) {
       case AnnotationType.arrow:
-        if (element.endPosition != null) {
+        if (projected.endPosition != null) {
           DrawingHelpers.drawArrow(
             canvas,
-            element.position,
-            element.endPosition!,
+            projected.position,
+            projected.endPosition!,
             strokePaint,
           );
         }
       case AnnotationType.rectangle:
-        if (element.endPosition != null) {
+        if (projected.endPosition != null) {
           DrawingHelpers.drawRectangle(
             canvas,
-            element.position,
-            element.endPosition!,
+            projected.position,
+            projected.endPosition!,
             strokePaint,
           );
         }
       case AnnotationType.circle:
-        if (element.endPosition != null) {
+        if (projected.endPosition != null) {
           DrawingHelpers.drawCircle(
             canvas,
-            element.position,
-            element.endPosition!,
+            projected.position,
+            projected.endPosition!,
             strokePaint,
           );
         }
       case AnnotationType.highlighter:
-        if (element.endPosition != null) {
-          final rect = _normalizedRect(element.position, element.endPosition!);
+        if (projected.endPosition != null) {
+          final rect = _normalizedRect(
+            projected.position,
+            projected.endPosition!,
+          );
           canvas.drawRect(
             rect,
             Paint()
               ..style = PaintingStyle.fill
-              ..color = Color(element.color).withValues(
+              ..color = Color(projected.color).withValues(
                 alpha: normalizedOpacity,
               ),
           );
         }
       case AnnotationType.pencil:
-        if (element.points.length > 1) {
+        if (projected.points.length > 1) {
           final path = Path()
-            ..moveTo(element.points.first.dx, element.points.first.dy);
-          for (final point in element.points.skip(1)) {
+            ..moveTo(projected.points.first.dx, projected.points.first.dy);
+          for (final point in projected.points.skip(1)) {
             path.lineTo(point.dx, point.dy);
           }
           canvas.drawPath(path, strokePaint);
         }
       case AnnotationType.text:
-        _drawText(canvas, element);
+        _drawText(canvas, projected);
       case AnnotationType.commentBubble:
-        _drawCommentBubble(canvas, element);
+        _drawCommentBubble(canvas, projected);
       case AnnotationType.blur:
-        if (element.endPosition != null) {
-          final rect = _normalizedRect(element.position, element.endPosition!);
-          _drawPixelateMask(canvas, rect, element.color, normalizedOpacity);
+        if (projected.endPosition != null) {
+          final rect = _normalizedRect(
+            projected.position,
+            projected.endPosition!,
+          );
+          _drawPixelateMask(
+            canvas,
+            rect,
+            projected.color,
+            normalizedOpacity,
+          );
         }
       case AnnotationType.stepMarker:
-        _drawStepMarker(canvas, element);
+        _drawStepMarker(canvas, projected);
       case AnnotationType.eraser:
       // Eraser is handled as action, not as drawable element.
       case AnnotationType.selection:

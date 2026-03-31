@@ -21,6 +21,7 @@ class ImageFrameComponent extends CanvasElement with EquatableMixin {
     required this.style,
     required this.transform,
     this.image,
+    this.parentImageId,
     this.isLockedBase = false,
   });
 
@@ -38,6 +39,9 @@ class ImageFrameComponent extends CanvasElement with EquatableMixin {
 
   /// Imagen decodificada (`ui.Image`) cuando está cargada.
   final dynamic image;
+
+  /// Id del frame padre cuando esta imagen vive dentro de otro frame.
+  final String? parentImageId;
 
   /// Indica si este frame corresponde a la captura base bloqueada.
   final bool isLockedBase;
@@ -107,6 +111,8 @@ class ImageFrameComponent extends CanvasElement with EquatableMixin {
     ImageFrameStyle? style,
     ImageFrameTransform? transform,
     dynamic image,
+    String? parentImageId,
+    bool clearParentImageId = false,
     bool? isLockedBase,
   }) {
     // Sincronización: si se pasa una nueva posición pero no un transform,
@@ -131,6 +137,9 @@ class ImageFrameComponent extends CanvasElement with EquatableMixin {
       style: style ?? this.style,
       transform: nextTransform,
       image: image ?? this.image,
+      parentImageId: clearParentImageId
+          ? null
+          : (parentImageId ?? this.parentImageId),
       isLockedBase: isLockedBase ?? this.isLockedBase,
     );
   }
@@ -145,6 +154,7 @@ class ImageFrameComponent extends CanvasElement with EquatableMixin {
     style,
     transform,
     image,
+    parentImageId,
     isLockedBase,
   ];
 }

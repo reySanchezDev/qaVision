@@ -13,13 +13,16 @@ class ImageFrameComponentService {
     required Offset position,
     required Size size,
     required Size frameSize,
+    Rect? movementBounds,
+    double displayScale = 1,
   }) {
-    // Libertad total: permitimos desbordamiento en todos los sentidos.
-    // Solo dejamos un margen minimo de 20% visible para no perder el elemento.
-    final minX = -size.width * 0.8;
-    final maxX = frameSize.width - size.width * 0.2;
-    final minY = -size.height * 0.8;
-    final maxY = frameSize.height - size.height * 0.2;
+    final bounds = movementBounds ?? (Offset.zero & frameSize);
+    final scaledWidth = size.width * displayScale;
+    final scaledHeight = size.height * displayScale;
+    final minX = bounds.left;
+    final maxX = math.max(bounds.left, bounds.right - scaledWidth);
+    final minY = bounds.top;
+    final maxY = math.max(bounds.top, bounds.bottom - scaledHeight);
 
     return Offset(
       position.dx.clamp(minX, maxX),
@@ -31,11 +34,14 @@ class ImageFrameComponentService {
   static Size clampSizeToFrame({
     required Size size,
     required Size frameSize,
+    Rect? movementBounds,
+    double displayScale = 1,
   }) {
+    final bounds = movementBounds ?? (Offset.zero & frameSize);
+    final scale = displayScale <= 0 ? 1.0 : displayScale;
     return Size(
-      // Libertad total para ancho y alto.
-      size.width.clamp(minFrameSize, 12000),
-      size.height.clamp(minFrameSize, 12000),
+      size.width.clamp(minFrameSize, bounds.width / scale),
+      size.height.clamp(minFrameSize, bounds.height / scale),
     );
   }
 
@@ -53,11 +59,15 @@ class ImageFrameComponentService {
     required ImageFrameComponent component,
     required Offset position,
     required Size frameSize,
+    Rect? movementBounds,
+    double displayScale = 1,
   }) {
     final boundedPosition = clampPositionToFrame(
       position: position,
       size: component.size,
       frameSize: frameSize,
+      movementBounds: movementBounds,
+      displayScale: displayScale,
     );
     return component.copyWith(
       transform: component.transform.copyWith(position: boundedPosition),
@@ -72,16 +82,22 @@ class ImageFrameComponentService {
     required Size size,
     required Size frameSize,
     Offset? position,
+    Rect? movementBounds,
+    double displayScale = 1,
   }) {
     final boundedSize = clampSizeToFrame(
       size: size,
       frameSize: frameSize,
+      movementBounds: movementBounds,
+      displayScale: displayScale,
     );
     final targetPosition = position ?? component.position;
     final boundedPosition = clampPositionToFrame(
       position: targetPosition,
       size: boundedSize,
       frameSize: frameSize,
+      movementBounds: movementBounds,
+      displayScale: displayScale,
     );
 
     // Logica Lego Mode: compensamos el desplazamiento del viewport
@@ -134,12 +150,16 @@ class ImageFrameComponentService {
   static ImageFrameComponent constrainToCanvas({
     required ImageFrameComponent component,
     required Size frameSize,
+    Rect? movementBounds,
+    double displayScale = 1,
   }) {
     final resized = resize(
       component: component,
       size: component.size,
       position: component.position,
       frameSize: frameSize,
+      movementBounds: movementBounds,
+      displayScale: displayScale,
     );
     return moveContent(
       component: resized,

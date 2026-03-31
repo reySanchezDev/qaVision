@@ -6,24 +6,16 @@ import 'package:qavision/core/config/app_defaults.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
 
-/// Zona de drop para insertar imágenes al canvas del visor.
+/// Zona de drop para insertar imagenes al canvas del visor.
 class ViewerCanvasDropTarget extends StatelessWidget {
   /// Crea una instancia de [ViewerCanvasDropTarget].
   const ViewerCanvasDropTarget({
     required this.child,
-    required this.frameSize,
-    required this.contentZoom,
     super.key,
   });
 
   /// Contenido visual principal del target.
   final Widget child;
-
-  /// Tamaño del frame del canvas.
-  final Size frameSize;
-
-  /// Zoom visual actual del contenido.
-  final double contentZoom;
 
   @override
   Widget build(BuildContext context) {
@@ -33,11 +25,7 @@ class ViewerCanvasDropTarget extends StatelessWidget {
         final renderObject = context.findRenderObject();
         if (renderObject is! RenderBox) return;
 
-        final local = _toLogicalPoint(
-          renderObject.globalToLocal(details.offset),
-          frameSize: frameSize,
-          zoom: contentZoom,
-        );
+        final local = renderObject.globalToLocal(details.offset);
         final imagePath = details.data.trim();
         if (imagePath.isEmpty) return;
 
@@ -69,21 +57,6 @@ class ViewerCanvasDropTarget extends StatelessWidget {
           child: child,
         );
       },
-    );
-  }
-
-  Offset _toLogicalPoint(
-    Offset point, {
-    required Size frameSize,
-    required double zoom,
-  }) {
-    if ((zoom - 1).abs() <= 0.001) {
-      return point;
-    }
-    final center = frameSize.center(Offset.zero);
-    return Offset(
-      ((point.dx - center.dx) / zoom) + center.dx,
-      ((point.dy - center.dy) / zoom) + center.dy,
     );
   }
 }

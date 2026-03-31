@@ -5,14 +5,25 @@ class ViewerZoomControls extends StatelessWidget {
   /// Crea una instancia de [ViewerZoomControls].
   const ViewerZoomControls({
     required this.zoom,
+    required this.fitZoom,
+    required this.onFitToScreen,
+    required this.onActualSize,
     required this.onZoomIn,
     required this.onZoomOut,
-    required this.onReset,
     super.key,
   });
 
   /// Zoom actual entre 1 y 1+.
   final double zoom;
+
+  /// Zoom calculado para ajustar la imagen al viewport.
+  final double fitZoom;
+
+  /// Accion para ajustar al area visible.
+  final VoidCallback onFitToScreen;
+
+  /// Accion para volver al tamano real.
+  final VoidCallback onActualSize;
 
   /// Acción de acercar.
   final VoidCallback onZoomIn;
@@ -20,11 +31,11 @@ class ViewerZoomControls extends StatelessWidget {
   /// Acción de alejar.
   final VoidCallback onZoomOut;
 
-  /// Acción de reset a zoom base.
-  final VoidCallback onReset;
-
   @override
   Widget build(BuildContext context) {
+    final isFitActive = (zoom - fitZoom).abs() < 0.02;
+    final isActualSize = (zoom - 1).abs() < 0.02;
+
     return Positioned(
       right: 12,
       bottom: 12,
@@ -37,22 +48,34 @@ class ViewerZoomControls extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            _ZoomActionButton(
+              tooltip: 'Ajustar a pantalla',
+              label: 'Fit',
+              isActive: isFitActive,
+              onPressed: onFitToScreen,
+            ),
+            const _ZoomDivider(),
+            _ZoomActionButton(
+              tooltip: 'Tamano real',
+              label: '100%',
+              isActive: isActualSize,
+              onPressed: onActualSize,
+            ),
+            const _ZoomDivider(),
             IconButton(
               tooltip: 'Alejar',
               icon: const Icon(Icons.remove, size: 18),
               color: Colors.white70,
               onPressed: onZoomOut,
             ),
-            InkWell(
-              onTap: onReset,
-              borderRadius: BorderRadius.circular(6),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+            SizedBox(
+              width: 56,
+              child: Center(
                 child: Text(
                   '${(zoom * 100).round()}%',
                   style: const TextStyle(
                     color: Colors.white,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                     fontSize: 12,
                   ),
                 ),
@@ -67,6 +90,61 @@ class ViewerZoomControls extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ZoomActionButton extends StatelessWidget {
+  const _ZoomActionButton({
+    required this.tooltip,
+    required this.label,
+    required this.isActive,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final String label;
+  final bool isActive;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: TextButton(
+        style: TextButton.styleFrom(
+          minimumSize: const Size(0, 32),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          foregroundColor: isActive ? Colors.white : Colors.white70,
+          backgroundColor: isActive
+              ? Colors.lightBlueAccent.withValues(alpha: 0.14)
+              : Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        onPressed: onPressed,
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ZoomDivider extends StatelessWidget {
+  const _ZoomDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 20,
+      color: Colors.white12,
     );
   }
 }

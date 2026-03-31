@@ -6,6 +6,7 @@ class ViewerState extends Equatable {
   /// Creates [ViewerState].
   const ViewerState({
     this.frame = const FrameState(),
+    this.canvasZoom = 1,
     this.activeTool = AnnotationType.selection,
     this.activeColor = 0xFFE53935,
     this.activeStrokeWidth = 4,
@@ -25,6 +26,9 @@ class ViewerState extends Equatable {
 
   /// Current frame snapshot.
   final FrameState frame;
+
+  /// Zoom visual aplicado al contenido mostrado en el workspace.
+  final double canvasZoom;
 
   /// Active drawing tool.
   final AnnotationType activeTool;
@@ -77,6 +81,7 @@ class ViewerState extends Equatable {
   /// Creates a copy with optional changes.
   ViewerState copyWith({
     FrameState? frame,
+    double? canvasZoom,
     AnnotationType? activeTool,
     int? activeColor,
     double? activeStrokeWidth,
@@ -99,6 +104,7 @@ class ViewerState extends Equatable {
   }) {
     return ViewerState(
       frame: frame ?? this.frame,
+      canvasZoom: canvasZoom ?? this.canvasZoom,
       activeTool: activeTool ?? this.activeTool,
       activeColor: activeColor ?? this.activeColor,
       activeStrokeWidth: activeStrokeWidth ?? this.activeStrokeWidth,
@@ -128,6 +134,7 @@ class ViewerState extends Equatable {
   @override
   List<Object?> get props => [
     frame,
+    canvasZoom,
     activeTool,
     activeColor,
     activeStrokeWidth,

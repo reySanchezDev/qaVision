@@ -9,6 +9,7 @@ import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_state.dart';
 import 'package:qavision/features/viewer/presentation/services/viewer_canvas_interaction_service.dart';
 import 'package:qavision/features/viewer/presentation/services/viewer_canvas_text_actions.dart';
+import 'package:qavision/features/viewer/presentation/utils/viewer_composition_helper.dart';
 import 'package:qavision/features/viewer/presentation/widgets/viewer_canvas_painter.dart';
 import 'package:qavision/features/viewer/presentation/widgets/viewer_text_dialog.dart';
 
@@ -152,14 +153,54 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
     if (state.activeTool == AnnotationType.selection) {
       final selected = ViewerCanvasInteractionService.selectedElement(state);
       final selectedImage = selected is ImageFrameComponent ? selected : null;
+      final topHit = ViewerCanvasInteractionService.hitTest(
+        state.frame,
+        point,
+        zoom: widget.contentZoom,
+      );
 
-      // Prioriza siempre la imagen seleccionada para evitar intermitencia
-      // cuando existen elementos superpuestos.
+      if (topHit is AnnotationElement) {
+        final projectedTopHit = ViewerCompositionHelper.projectAnnotation(
+          state.frame.elements,
+          topHit,
+          imageZoom: widget.contentZoom,
+        );
+        bloc.add(
+          ViewerElementSelected(
+            elementId: topHit.id,
+            centerImage: false,
+          ),
+        );
+
+        if (ViewerCanvasInteractionService.isOnResizeHandle(topHit, point)) {
+          _dragMode = _DragMode.resizeElement;
+          _dragElementId = topHit.id;
+          _elementResizeStartPointer = point;
+          _elementResizeStartSize =
+              ViewerCanvasInteractionService.selectionBounds(
+                topHit,
+                elements: state.frame.elements,
+                zoom: widget.contentZoom,
+              ).size;
+          _imageResizeHandle = ViewerImageResizeHandle.none;
+          bloc.add(const ViewerInteractionStarted());
+          return;
+        }
+
+        _dragMode = _DragMode.moveElement;
+        _dragElementId = topHit.id;
+        _imageResizeHandle = ViewerImageResizeHandle.none;
+        _dragAnchor = point - projectedTopHit.position;
+        bloc.add(const ViewerInteractionStarted());
+        return;
+      }
+
       if (selectedImage != null) {
         final selectedImageHandle =
             ViewerCanvasInteractionService.hitTestFrameResizeHandles(
               logicalPoint: point,
               element: selectedImage,
+              zoom: widget.contentZoom,
             );
         if (selectedImageHandle != null &&
             selectedImageHandle != ViewerImageResizeHandle.none) {
@@ -168,13 +209,17 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
           _imageResizeHandle = selectedImageHandle;
           _elementResizeStartPointer = point;
           _elementResizeStartSize = selectedImage.size;
-          _elementResizeStartRect = selectedImage.position & selectedImage.size;
+          _elementResizeStartRect = ViewerCompositionHelper.imageFrameRect(
+            selectedImage,
+            imageZoom: widget.contentZoom,
+          );
           bloc.add(const ViewerInteractionStarted());
           return;
         }
         if (ViewerCanvasInteractionService.isInsideImageFrame(
           selectedImage,
           point,
+          zoom: widget.contentZoom,
         )) {
           _dragMode = _DragMode.moveElement;
           _dragElementId = selectedImage.id;
@@ -189,6 +234,7 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
           ViewerCanvasInteractionService.hitTopImageResizeHandle(
             state.frame,
             point,
+            zoom: widget.contentZoom,
           );
       if (topImageResizeHit != null) {
         bloc.add(
@@ -202,8 +248,10 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
         _imageResizeHandle = topImageResizeHit.handle;
         _elementResizeStartPointer = point;
         _elementResizeStartSize = topImageResizeHit.element.size;
-        _elementResizeStartRect =
-            topImageResizeHit.element.position & topImageResizeHit.element.size;
+        _elementResizeStartRect = ViewerCompositionHelper.imageFrameRect(
+          topImageResizeHit.element,
+          imageZoom: widget.contentZoom,
+        );
         bloc.add(const ViewerInteractionStarted());
         return;
       }
@@ -211,6 +259,7 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
       final topImage = ViewerCanvasInteractionService.hitTopImageFrame(
         state.frame,
         point,
+        zoom: widget.contentZoom,
       );
       if (topImage != null) {
         bloc.add(
@@ -227,11 +276,7 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
         return;
       }
 
-      final hit = ViewerCanvasInteractionService.hitTest(
-        state.frame,
-        point,
-        zoom: widget.contentZoom,
-      );
+      final hit = topHit;
       bloc.add(
         ViewerElementSelected(
           elementId: hit?.id,
@@ -244,6 +289,7 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
         final handle = ViewerCanvasInteractionService.hitTestFrameResizeHandles(
           logicalPoint: point,
           element: hit,
+          zoom: widget.contentZoom,
         );
         if (handle != null && handle != ViewerImageResizeHandle.none) {
           _dragMode = _DragMode.resizeElement;
@@ -251,7 +297,10 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
           _imageResizeHandle = handle;
           _elementResizeStartPointer = point;
           _elementResizeStartSize = hit.size;
-          _elementResizeStartRect = hit.position & hit.size;
+          _elementResizeStartRect = ViewerCompositionHelper.imageFrameRect(
+            hit,
+            imageZoom: widget.contentZoom,
+          );
           bloc.add(const ViewerInteractionStarted());
           return;
         }
@@ -264,12 +313,21 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
         return;
       }
 
-      if (ViewerCanvasInteractionService.isOnResizeHandle(hit, point)) {
+      if (ViewerCanvasInteractionService.isOnResizeHandle(
+        hit,
+        point,
+        elements: state.frame.elements,
+        zoom: widget.contentZoom,
+      )) {
         _dragMode = _DragMode.resizeElement;
         _dragElementId = hit.id;
         _elementResizeStartPointer = point;
         _elementResizeStartSize =
-            ViewerCanvasInteractionService.selectionBounds(hit).size;
+            ViewerCanvasInteractionService.selectionBounds(
+              hit,
+              elements: state.frame.elements,
+              zoom: widget.contentZoom,
+            ).size;
         _imageResizeHandle = ViewerImageResizeHandle.none;
         bloc.add(const ViewerInteractionStarted());
         return;
@@ -278,7 +336,14 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
       _dragMode = _DragMode.moveElement;
       _dragElementId = hit.id;
       _imageResizeHandle = ViewerImageResizeHandle.none;
-      _dragAnchor = point - hit.position;
+      final dragOrigin = hit is AnnotationElement
+          ? ViewerCompositionHelper.projectAnnotation(
+              state.frame.elements,
+              hit,
+              imageZoom: widget.contentZoom,
+            ).position
+          : hit.position;
+      _dragAnchor = point - dragOrigin;
       bloc.add(const ViewerInteractionStarted());
       return;
     }
@@ -324,17 +389,24 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
       if (id != null) {
         final delta = point - _elementResizeStartPointer;
         if (_imageResizeHandle != ViewerImageResizeHandle.none) {
-          final resizedRect = ViewerCanvasInteractionService.computeResizedRect(
+          final resizedDisplayRect =
+              ViewerCanvasInteractionService.computeResizedRect(
             startRect: _elementResizeStartRect,
             delta: delta,
             handle: _imageResizeHandle,
             frameSize: state.frame.canvasSize,
           );
+          final logicalRect = Rect.fromLTWH(
+            resizedDisplayRect.left,
+            resizedDisplayRect.top,
+            resizedDisplayRect.width / widget.contentZoom,
+            resizedDisplayRect.height / widget.contentZoom,
+          );
           bloc.add(
             ViewerElementResized(
               elementId: id,
-              size: resizedRect.size,
-              position: resizedRect.topLeft,
+              size: logicalRect.size,
+              position: logicalRect.topLeft,
             ),
           );
           return;

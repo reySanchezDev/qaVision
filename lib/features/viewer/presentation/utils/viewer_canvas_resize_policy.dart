@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 /// Reglas de normalizacion para el tamano del canvas del visor.
 class ViewerCanvasResizePolicy {
-  static const double _canvasMargin = 200;
   static const double _minWidth = 320;
   static const double _minHeight = 220;
   static const double _maxSize = 12000;
@@ -10,8 +9,8 @@ class ViewerCanvasResizePolicy {
   /// Calcula el tamano esperado de canvas a partir del viewport objetivo.
   static Size expectedCanvasSize(Size targetSize) {
     return Size(
-      (targetSize.width + _canvasMargin).clamp(_minWidth, _maxSize),
-      (targetSize.height + _canvasMargin).clamp(_minHeight, _maxSize),
+      targetSize.width.clamp(_minWidth, _maxSize),
+      targetSize.height.clamp(_minHeight, _maxSize),
     );
   }
 

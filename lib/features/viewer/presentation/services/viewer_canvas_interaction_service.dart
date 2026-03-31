@@ -71,21 +71,23 @@ class ViewerCanvasInteractionService {
     Offset point, {
     required double zoom,
   }) {
-    final logicalPoint = toLogicalPoint(
-      point: point,
-      frameSize: frame.canvasSize,
-      zoom: zoom,
-    );
+    final logicalPoint = point;
     final sorted = List<CanvasElement>.from(frame.elements)
       ..sort((a, b) => b.zIndex.compareTo(a.zIndex));
     for (final element in sorted) {
       if (element is ImageFrameComponent) {
-        if (element.frameRect.contains(logicalPoint)) {
+        final bounds = ViewerCompositionHelper.imageFrameRect(
+          element,
+          imageZoom: zoom,
+        );
+        if (bounds.contains(logicalPoint)) {
           return element;
         }
       } else {
         final bounds = ViewerCompositionHelper.elementBounds(
           element,
+          elements: frame.elements,
+          imageZoom: zoom,
         ).inflate(_elementHitInflate);
         if (bounds.contains(logicalPoint)) {
           return element;
@@ -96,7 +98,12 @@ class ViewerCanvasInteractionService {
   }
 
   /// Returns true when [point] is on a resize handle for [element].
-  static bool isOnResizeHandle(CanvasElement element, Offset point) {
+  static bool isOnResizeHandle(
+    CanvasElement element,
+    Offset point, {
+    List<CanvasElement>? elements,
+    double zoom = 1,
+  }) {
     if (element is ImageFrameComponent) {
       final handle = hitTestFrameResizeHandles(
         logicalPoint: point,
@@ -104,7 +111,11 @@ class ViewerCanvasInteractionService {
       );
       return handle != null && handle != ViewerImageResizeHandle.none;
     }
-    final bounds = ViewerCompositionHelper.elementBounds(element);
+    final bounds = ViewerCompositionHelper.elementBounds(
+      element,
+      elements: elements,
+      imageZoom: zoom,
+    );
     final handle = Rect.fromCenter(
       center: bounds.bottomRight,
       width: 24,
@@ -117,8 +128,12 @@ class ViewerCanvasInteractionService {
   static ViewerImageResizeHandle? hitTestFrameResizeHandles({
     required Offset logicalPoint,
     required ImageFrameComponent element,
+    double zoom = 1,
   }) {
-    final bounds = element.frameRect;
+    final bounds = ViewerCompositionHelper.imageFrameRect(
+      element,
+      imageZoom: zoom,
+    );
     const edge = _imageResizeEdgeHitSlop;
     const corner = _imageResizeCornerHitSlop;
 
@@ -167,6 +182,7 @@ class ViewerCanvasInteractionService {
   static ViewerImageResizeHit? hitTopImageResizeHandle(
     FrameState frame,
     Offset logicalPoint,
+    {required double zoom}
   ) {
     final images = frame.elements.whereType<ImageFrameComponent>().toList(
       growable: false,
@@ -175,6 +191,7 @@ class ViewerCanvasInteractionService {
       final handle = hitTestFrameResizeHandles(
         logicalPoint: logicalPoint,
         element: image,
+        zoom: zoom,
       );
       if (handle != null && handle != ViewerImageResizeHandle.none) {
         return ViewerImageResizeHit(
@@ -190,12 +207,16 @@ class ViewerCanvasInteractionService {
   static ImageFrameComponent? hitTopImageFrame(
     FrameState frame,
     Offset logicalPoint,
+    {required double zoom}
   ) {
     final images = frame.elements.whereType<ImageFrameComponent>().toList(
       growable: false,
     )..sort((a, b) => b.zIndex.compareTo(a.zIndex));
     for (final image in images) {
-      if (image.frameRect.contains(logicalPoint)) {
+      if (ViewerCompositionHelper.imageFrameRect(
+        image,
+        imageZoom: zoom,
+      ).contains(logicalPoint)) {
         return image;
       }
     }
@@ -269,10 +290,10 @@ class ViewerCanvasInteractionService {
       }
     }
 
-    left = left.clamp(-20000, frameSize.width - minSize);
-    top = top.clamp(-20000, frameSize.height - minSize);
-    right = right.clamp(left + minSize, 20000);
-    bottom = bottom.clamp(top + minSize, 20000);
+    left = left.clamp(0, frameSize.width - minSize).toDouble();
+    top = top.clamp(0, frameSize.height - minSize).toDouble();
+    right = right.clamp(left + minSize, frameSize.width);
+    bottom = bottom.clamp(top + minSize, frameSize.height);
 
     return Rect.fromLTRB(left, top, right, bottom);
   }
@@ -283,14 +304,7 @@ class ViewerCanvasInteractionService {
     required Size frameSize,
     required double zoom,
   }) {
-    if ((zoom - 1).abs() <= 0.001) {
-      return point;
-    }
-    final center = frameSize.center(Offset.zero);
-    return Offset(
-      ((point.dx - center.dx) / zoom) + center.dx,
-      ((point.dy - center.dy) / zoom) + center.dy,
-    );
+    return point;
   }
 
   /// Computes free resize size for non-image annotations.
@@ -305,12 +319,27 @@ class ViewerCanvasInteractionService {
   }
 
   /// Returns bounds used for selection outline around [element].
-  static Rect selectionBounds(CanvasElement element) {
-    return ViewerCompositionHelper.elementBounds(element).inflate(4);
+  static Rect selectionBounds(
+    CanvasElement element, {
+    List<CanvasElement>? elements,
+    double zoom = 1,
+  }) {
+    return ViewerCompositionHelper.elementBounds(
+      element,
+      elements: elements,
+      imageZoom: zoom,
+    ).inflate(4);
   }
 
   /// True when [point] falls inside image frame bounds.
-  static bool isInsideImageFrame(ImageFrameComponent element, Offset point) {
-    return element.frameRect.contains(point);
+  static bool isInsideImageFrame(
+    ImageFrameComponent element,
+    Offset point, {
+    double zoom = 1,
+  }) {
+    return ViewerCompositionHelper.imageFrameRect(
+      element,
+      imageZoom: zoom,
+    ).contains(point);
   }
 }
