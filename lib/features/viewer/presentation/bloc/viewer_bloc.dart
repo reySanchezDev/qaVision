@@ -16,6 +16,7 @@ import 'package:qavision/features/viewer/domain/entities/image_frame_transform.d
 import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
 import 'package:qavision/features/viewer/domain/entities/viewer_image_frame_defaults.dart';
 import 'package:qavision/features/viewer/domain/services/image_frame_component_service.dart';
+import 'package:qavision/features/viewer/domain/services/viewer_document_graph_service.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_state.dart';
 import 'package:qavision/features/viewer/presentation/utils/viewer_composition_helper.dart';
@@ -1377,19 +1378,14 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     Offset point, {
     required double imageZoom,
   }) {
-    final images = elements.whereType<ImageFrameComponent>().toList(
-      growable: false,
-    )..sort((a, b) => b.zIndex.compareTo(a.zIndex));
-    for (final image in images) {
-      final bounds = ViewerCompositionHelper.imageFrameRect(
-        image,
-        imageZoom: imageZoom,
-      );
-      if (bounds.contains(point)) {
-        return image.id;
-      }
-    }
-    return null;
+    final document = ViewerDocumentGraphService.build(
+      state.frame.copyWith(elements: elements),
+    );
+    return ViewerDocumentGraphService.topImageAtPoint(
+      document,
+      point,
+      imageZoom: imageZoom,
+    )?.id;
   }
 
   ImageFrameComponent? _resolveInsertionParentImage(FrameState frame) {
@@ -1398,39 +1394,37 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       return null;
     }
 
-    final selected = frame.elements
-        .where((element) => element.id == selectedId)
-        .firstOrNull;
+    final document = ViewerDocumentGraphService.build(frame);
+    final selected = document.elementById(selectedId);
     if (selected is ImageFrameComponent) {
       return selected;
     }
     if (selected is AnnotationElement && selected.attachedImageId != null) {
-      return _findImageById(frame.elements, selected.attachedImageId!);
+      return document.imageById(selected.attachedImageId!);
     }
     return null;
   }
 
   int _countNestedImages(FrameState frame) {
     final parent = _resolveInsertionParentImage(frame);
+    final document = ViewerDocumentGraphService.build(frame);
     if (parent == null) {
-      return frame.elements.whereType<ImageFrameComponent>().length;
+      return document.orderedImages().length;
     }
-    return frame.elements
-        .whereType<ImageFrameComponent>()
-        .where((image) => image.parentImageId == parent.id)
-        .length;
+    return document.nodeById(parent.id)?.childIds
+            .map(document.imageById)
+            .whereType<ImageFrameComponent>()
+            .length ??
+        0;
   }
 
   ImageFrameComponent? _findImageById(
     List<CanvasElement> elements,
     String imageId,
   ) {
-    for (final element in elements) {
-      if (element is ImageFrameComponent && element.id == imageId) {
-        return element;
-      }
-    }
-    return null;
+    return ViewerDocumentGraphService.build(
+      state.frame.copyWith(elements: elements),
+    ).imageById(imageId);
   }
 
   Rect _movementBoundsForNewImage({
@@ -1552,17 +1546,12 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     List<CanvasElement> elements,
     String imageId,
   ) {
-    final descendants = <String>{};
-    void visit(String parentId) {
-      for (final element in elements.whereType<ImageFrameComponent>()) {
-        if (element.parentImageId != parentId) continue;
-        if (!descendants.add(element.id)) continue;
-        visit(element.id);
-      }
-    }
-
-    visit(imageId);
-    return descendants;
+    return ViewerDocumentGraphService.descendantImageIds(
+      ViewerDocumentGraphService.build(
+        state.frame.copyWith(elements: elements),
+      ),
+      imageId,
+    );
   }
 
   AnnotationElement _translateAnnotation(
@@ -1650,8 +1639,8 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         2.0; // Alta densidad para máxima nitidez en textos y flechas
 
     final exportRect = _snapExportRect(
-      _resolveExportRect(
-        frame,
+      ViewerDocumentGraphService.resolveExportRect(
+        ViewerDocumentGraphService.build(frame),
         focusImageId: focusImageId,
       ),
       pixelRatio: pixelRatio,
@@ -1690,6 +1679,9 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     return Rect.fromLTRB(left, top, right, bottom);
   }
 
+  // Fallback temporal mientras termina de migrarse toda la exportacion al
+  // arbol de documento en la fase 2 del visor.
+  // ignore: unused_element
   Rect _resolveExportRect(
     FrameState frame, {
     String? focusImageId,

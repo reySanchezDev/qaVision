@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:qavision/features/viewer/domain/entities/image_frame_component.dart';
 import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
+import 'package:qavision/features/viewer/domain/services/viewer_document_graph_service.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_state.dart';
 import 'package:qavision/features/viewer/presentation/utils/viewer_composition_helper.dart';
 
@@ -51,7 +52,6 @@ class ViewerImageResizeHit {
 
 /// Canvas interaction and hit-test helpers for viewer canvas.
 class ViewerCanvasInteractionService {
-  static const double _elementHitInflate = 8;
   static const double _imageResizeEdgeHitSlop = 22;
   static const double _imageResizeCornerHitSlop = 30;
 
@@ -71,30 +71,12 @@ class ViewerCanvasInteractionService {
     Offset point, {
     required double zoom,
   }) {
-    final logicalPoint = point;
-    final sorted = List<CanvasElement>.from(frame.elements)
-      ..sort((a, b) => b.zIndex.compareTo(a.zIndex));
-    for (final element in sorted) {
-      if (element is ImageFrameComponent) {
-        final bounds = ViewerCompositionHelper.imageFrameRect(
-          element,
-          imageZoom: zoom,
-        );
-        if (bounds.contains(logicalPoint)) {
-          return element;
-        }
-      } else {
-        final bounds = ViewerCompositionHelper.elementBounds(
-          element,
-          elements: frame.elements,
-          imageZoom: zoom,
-        ).inflate(_elementHitInflate);
-        if (bounds.contains(logicalPoint)) {
-          return element;
-        }
-      }
-    }
-    return null;
+    final document = ViewerDocumentGraphService.build(frame);
+    return ViewerDocumentGraphService.hitTest(
+      document,
+      point,
+      imageZoom: zoom,
+    );
   }
 
   /// Returns true when [point] is on a resize handle for [element].
@@ -184,9 +166,8 @@ class ViewerCanvasInteractionService {
     Offset logicalPoint,
     {required double zoom}
   ) {
-    final images = frame.elements.whereType<ImageFrameComponent>().toList(
-      growable: false,
-    )..sort((a, b) => b.zIndex.compareTo(a.zIndex));
+    final document = ViewerDocumentGraphService.build(frame);
+    final images = document.orderedImages(frontToBack: true);
     for (final image in images) {
       final handle = hitTestFrameResizeHandles(
         logicalPoint: logicalPoint,
@@ -209,18 +190,12 @@ class ViewerCanvasInteractionService {
     Offset logicalPoint,
     {required double zoom}
   ) {
-    final images = frame.elements.whereType<ImageFrameComponent>().toList(
-      growable: false,
-    )..sort((a, b) => b.zIndex.compareTo(a.zIndex));
-    for (final image in images) {
-      if (ViewerCompositionHelper.imageFrameRect(
-        image,
-        imageZoom: zoom,
-      ).contains(logicalPoint)) {
-        return image;
-      }
-    }
-    return null;
+    final document = ViewerDocumentGraphService.build(frame);
+    return ViewerDocumentGraphService.topImageAtPoint(
+      document,
+      logicalPoint,
+      imageZoom: zoom,
+    );
   }
 
   /// Computes resized rectangle for an image element.

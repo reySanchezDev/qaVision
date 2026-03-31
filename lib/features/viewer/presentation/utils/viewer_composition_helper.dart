@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:qavision/core/utils/drawing_helpers.dart';
 import 'package:qavision/features/viewer/domain/entities/image_frame_component.dart';
 import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
+import 'package:qavision/features/viewer/domain/services/viewer_document_graph_service.dart';
 import 'package:qavision/features/viewer/presentation/utils/viewer_workspace_layout.dart';
 
 /// Shared rendering helpers for viewer canvas and export composition.
@@ -45,8 +46,8 @@ class ViewerCompositionHelper {
         );
     }
 
-    final sorted = List<CanvasElement>.from(frame.elements)
-      ..sort((a, b) => a.zIndex.compareTo(b.zIndex));
+    final document = ViewerDocumentGraphService.build(frame);
+    final sorted = document.orderedElements();
 
     for (final element in sorted) {
       if (element is ImageFrameComponent) {
