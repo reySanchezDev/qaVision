@@ -13,6 +13,7 @@ import 'package:qavision/features/floating_button/presentation/constants/floatin
 import 'package:qavision/features/projects/domain/entities/project_entity.dart';
 import 'package:qavision/features/projects/domain/repositories/i_project_repository.dart';
 import 'package:qavision/features/projects/presentation/bloc/project_bloc.dart';
+import 'package:qavision/core/services/clipboard_service.dart';
 
 class _InMemoryProjectRepository implements IProjectRepository {
   _InMemoryProjectRepository(this._projects);
@@ -23,6 +24,11 @@ class _InMemoryProjectRepository implements IProjectRepository {
   Future<ProjectEntity> createProject(ProjectEntity project) async {
     _projects = <ProjectEntity>[..._projects, project];
     return project;
+  }
+
+  @override
+  Future<void> removeFolder(String folderPath) async {
+    _projects.removeWhere((p) => p.folderPath == folderPath);
   }
 
   @override
@@ -238,6 +244,7 @@ void main() {
           nativeCaptureService: NativeScreenCaptureService(),
         ),
         captureRepository: _InMemoryCaptureRepository(),
+        clipboardService: ClipboardService(),
       );
       floatingBloc = FloatingButtonBloc(
         projectRepository: projectRepository,

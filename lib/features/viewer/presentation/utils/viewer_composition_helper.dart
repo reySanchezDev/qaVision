@@ -1,5 +1,5 @@
-import 'dart:math' as math;
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -294,7 +294,8 @@ class ViewerCompositionHelper {
     );
   }
 
-  /// Convierte un punto visible del canvas al espacio interno del viewport del frame.
+  /// Convierte un punto visible del canvas al espacio interno del viewport del
+  /// frame.
   static Offset canvasPointToImageFrame(
     ImageFrameComponent image,
     Offset canvasPoint, {
@@ -873,14 +874,14 @@ class ViewerCompositionHelper {
       Radius.circular(borderRadius),
     );
 
-    if (projected.hasShadow && panelColor.alpha > 0) {
+    if (projected.hasShadow && panelColor.a > 0) {
       canvas.drawRRect(
         rrect.shift(Offset(0, (10 * panelScale).clamp(5, 12).toDouble())),
         Paint()..color = Colors.black.withValues(alpha: 0.18),
       );
     }
 
-    if (panelColor.alpha > 0) {
+    if (panelColor.a > 0) {
       canvas.drawRRect(
         rrect,
         Paint()..color = panelColor,
@@ -968,57 +969,6 @@ class ViewerCompositionHelper {
     );
   }
 
-  static TextSpan _buildRichTextDeltaSpan(
-    AnnotationElement element,
-    double panelScale,
-  ) {
-    final baseStyle = TextStyle(
-      color: Color(element.color),
-      fontSize: math.max(8, element.textSize * panelScale),
-      fontFamily: element.fontFamily,
-      fontWeight: element.isBold ? FontWeight.w700 : FontWeight.w500,
-      fontStyle: element.isItalic ? FontStyle.italic : FontStyle.normal,
-      height: 1.35,
-    );
-    final spans = <InlineSpan>[];
-    final operations = _decodeRichTextOperations(
-      element.richTextDelta,
-      fallbackText: element.text,
-    );
-
-    for (var i = 0; i < operations.length; i++) {
-      final operation = operations[i];
-      final insert = operation['insert'];
-      if (insert is! String || insert.isEmpty) {
-        continue;
-      }
-      var text = insert.replaceAll('\r\n', '\n');
-      if (i == operations.length - 1 && text.endsWith('\n')) {
-        text = text.substring(0, text.length - 1);
-      }
-      if (text.isEmpty) {
-        continue;
-      }
-
-      final attributes = operation['attributes'];
-      spans.add(
-        TextSpan(
-          text: text,
-          style: baseStyle.merge(
-            _styleFromRichTextAttributes(
-              attributes is Map<String, dynamic> ? attributes : null,
-              fallbackColor: Color(element.color),
-            ),
-          ),
-        ),
-      );
-    }
-
-    if (spans.isEmpty) {
-      return TextSpan(text: element.text, style: baseStyle);
-    }
-    return TextSpan(style: baseStyle, children: spans);
-  }
 
   static List<_RichTextParagraph> _buildRichTextParagraphs(
     AnnotationElement element,
@@ -1103,8 +1053,8 @@ class ViewerCompositionHelper {
         final decoded = jsonDecode(serialized);
         if (decoded is List) {
           return decoded
-              .whereType<Map>()
-              .map((entry) => Map<String, dynamic>.from(entry))
+              .whereType<Map<dynamic, dynamic>>()
+              .map(Map<String, dynamic>.from)
               .toList(growable: false);
         }
       } on FormatException {

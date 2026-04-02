@@ -39,7 +39,7 @@ class SettingsRepository implements ISettingsRepository {
       postCaptureAction: _parsePostCaptureAction(
         map['postCaptureAction'] as String?,
       ),
-      copyToClipboard: map['copyToClipboard'] as bool? ?? false,
+      copyToClipboard: map['copyToClipboard'] as bool? ?? true,
       hotkeyTraditional: map['hotkeyTraditional'] as String? ?? 'Ctrl+Shift+S',
       hotkeyClipMode: map['hotkeyClipMode'] as String? ?? 'Ctrl+Shift+C',
       hotkeyOpenViewer: map['hotkeyOpenViewer'] as String? ?? 'Ctrl+Shift+V',

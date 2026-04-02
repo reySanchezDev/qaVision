@@ -581,7 +581,6 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         canvasPoint: panelRect.bottomRight,
         imageZoom: state.canvasZoom,
       ),
-      text: '',
       richTextDelta: _emptyRichTextDelta(),
       fontFamily: state.activeFontFamily,
       isBold: state.activeTextBold,
@@ -918,7 +917,9 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         );
       } else if (element.type == AnnotationType.pencil &&
           element.points.isNotEmpty) {
-        final sx = oldBounds.width <= 1 ? 1.0 : nextRect.width / oldBounds.width;
+        final sx = oldBounds.width <= 1
+            ? 1.0
+            : nextRect.width / oldBounds.width;
         final sy = oldBounds.height <= 1
             ? 1.0
             : nextRect.height / oldBounds.height;
@@ -1629,7 +1630,12 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         source.coordinateSpace == AnnotationCoordinateSpace.workspace) {
       final scale = imageZoom.clamp(0.1, 10.0);
       final projectedRect = projected.endPosition == null
-          ? Rect.fromLTWH(projected.position.dx, projected.position.dy, 360, 220)
+          ? Rect.fromLTWH(
+              projected.position.dx,
+              projected.position.dy,
+              360,
+              220,
+            )
           : Rect.fromLTRB(
               math.min(projected.position.dx, projected.endPosition!.dx),
               math.min(projected.position.dy, projected.endPosition!.dy),
@@ -1847,7 +1853,8 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       return;
     }
     final index = elements.indexWhere(
-      (candidate) => candidate is ImageFrameComponent && candidate.id == imageId,
+      (candidate) =>
+          candidate is ImageFrameComponent && candidate.id == imageId,
     );
     if (index < 0) {
       return;
@@ -2118,12 +2125,8 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
   }) {
     const desiredWidth = 380.0;
     const desiredHeight = 220.0;
-    final left = point.dx
-        .clamp(bounds.left, bounds.right - desiredWidth)
-        .toDouble();
-    final top = point.dy
-        .clamp(bounds.top, bounds.bottom - desiredHeight)
-        .toDouble();
+    final left = point.dx.clamp(bounds.left, bounds.right - desiredWidth);
+    final top = point.dy.clamp(bounds.top, bounds.bottom - desiredHeight);
     return Rect.fromLTWH(
       left,
       top,

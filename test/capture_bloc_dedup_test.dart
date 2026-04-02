@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qavision/core/services/capture_service.dart';
+import 'package:qavision/core/services/clipboard_service.dart';
 import 'package:qavision/core/services/file_system_service.dart';
 import 'package:qavision/core/services/native_screen_capture_service.dart';
 import 'package:qavision/features/capture/domain/entities/capture_entity.dart';
@@ -54,6 +55,15 @@ class _DelayedCaptureService extends CaptureService {
   }
 }
 
+class _RecordingClipboardService extends ClipboardService {
+  int imagePathCopyCount = 0;
+
+  @override
+  Future<void> copyImageFileToClipboard(String imagePath) async {
+    imagePathCopyCount++;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -93,9 +103,11 @@ void main() {
     () async {
       final captureService = _DelayedCaptureService();
       final captureRepository = _InMemoryCaptureRepository();
+      final clipboardService = _RecordingClipboardService();
       final bloc = CaptureBloc(
         captureService: captureService,
         captureRepository: captureRepository,
+        clipboardService: clipboardService,
       );
 
       const project = ProjectEntity(
@@ -115,6 +127,7 @@ void main() {
 
       expect(captureService.callCount, 1);
       expect(captureRepository.savedCount, 1);
+      expect(clipboardService.imagePathCopyCount, 1);
 
       await bloc.close();
     },

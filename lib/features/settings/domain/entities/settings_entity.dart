@@ -35,7 +35,7 @@ class SettingsEntity extends Equatable {
     this.jpgQuality = JpgQuality.high,
     this.fileNameMask = '',
     this.postCaptureAction = PostCaptureAction.saveAndOpenViewer,
-    this.copyToClipboard = false,
+    this.copyToClipboard = true,
     this.hotkeyTraditional = 'Ctrl+Shift+S',
     this.hotkeyClipMode = 'Ctrl+Shift+C',
     this.hotkeyOpenViewer = 'Ctrl+Shift+V',

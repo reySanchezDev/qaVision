@@ -1,10 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:pasteboard/pasteboard.dart';
 import 'package:qavision/core/config/app_defaults.dart';
 import 'package:qavision/core/services/capture_service.dart';
+import 'package:qavision/core/services/clipboard_service.dart';
 import 'package:qavision/features/capture/domain/entities/capture_entity.dart';
 import 'package:qavision/features/capture/domain/repositories/i_capture_repository.dart';
 import 'package:qavision/features/capture/presentation/bloc/capture_event.dart';
@@ -19,8 +18,10 @@ class CaptureBloc extends Bloc<CaptureEvent, CaptureState> {
   CaptureBloc({
     required CaptureService captureService,
     required ICaptureRepository captureRepository,
+    required ClipboardService clipboardService,
   }) : _captureService = captureService,
        _captureRepo = captureRepository,
+       _clipboardService = clipboardService,
        super(const CaptureIdle()) {
     on<CaptureRequested>(_onCaptureRequested);
     on<CaptureResetRequested>(_onResetRequested);
@@ -28,6 +29,7 @@ class CaptureBloc extends Bloc<CaptureEvent, CaptureState> {
 
   final CaptureService _captureService;
   final ICaptureRepository _captureRepo;
+  final ClipboardService _clipboardService;
   final _uuid = const Uuid();
   bool _captureInProgress = false;
 
@@ -71,7 +73,7 @@ class CaptureBloc extends Bloc<CaptureEvent, CaptureState> {
 
         // Copiar al portapapeles si está activo (§4.7)
         if (kAppDefaults.copyToClipboard) {
-          await Pasteboard.writeImage(await File(savedPath).readAsBytes());
+          await _clipboardService.copyImageFileToClipboard(savedPath);
         }
 
         // Emitir estado específico según PostCaptureAction (§4.6)

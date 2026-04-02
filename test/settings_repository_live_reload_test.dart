@@ -44,6 +44,34 @@ void main() {
         loaded.postCaptureAction,
         PostCaptureAction.saveAndShowThumbnail,
       );
+      expect(loaded.copyToClipboard, isTrue);
+    },
+  );
+
+  test(
+    'SettingsRepository usa copyToClipboard=true cuando el valor no existe',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'qavision_settings_clipboard_',
+      );
+      final configPath = '${tempDir.path}${Platform.pathSeparator}config.json';
+      final storage = StorageService(filePath: configPath);
+      final repository = SettingsRepository(storageService: storage);
+
+      addTearDown(() async {
+        await storage.dispose();
+        if (tempDir.existsSync()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      await storage.init();
+      await storage.setMap('settings', <String, dynamic>{
+        'rootFolder': 'C:/tmp/qavision',
+      });
+
+      final loaded = await repository.loadSettings();
+      expect(loaded.copyToClipboard, isTrue);
     },
   );
 }
