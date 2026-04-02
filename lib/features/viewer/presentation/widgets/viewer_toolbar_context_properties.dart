@@ -171,7 +171,7 @@ class ViewerToolbarContextProperties extends StatelessWidget {
             min: 1,
             max: 20,
             divisions: 19,
-            value: effectiveStrokeWidth.clamp(1, 20).toDouble(),
+            value: effectiveStrokeWidth.clamp(1, 20),
             onChanged: (value) {
               context.read<ViewerBloc>().add(
                 ViewerPropertiesChanged(strokeWidth: value),
@@ -191,7 +191,7 @@ class ViewerToolbarContextProperties extends StatelessWidget {
             min: 0.1,
             max: 1,
             divisions: 18,
-            value: effectiveOpacity.clamp(0.1, 1).toDouble(),
+            value: effectiveOpacity.clamp(0.1, 1),
             onChanged: (value) {
               context.read<ViewerBloc>().add(
                 ViewerPropertiesChanged(opacity: value),
@@ -211,7 +211,7 @@ class ViewerToolbarContextProperties extends StatelessWidget {
             min: 10,
             max: 56,
             divisions: 23,
-            value: effectiveTextSize.clamp(10, 56).toDouble(),
+            value: effectiveTextSize.clamp(10, 56),
             onChanged: (value) {
               context.read<ViewerBloc>().add(
                 ViewerPropertiesChanged(textSize: value),
@@ -473,7 +473,7 @@ class ViewerToolbarContextProperties extends StatelessWidget {
           min: 0,
           max: 1,
           divisions: 20,
-          value: image.style.backgroundOpacity.clamp(0, 1).toDouble(),
+          value: image.style.backgroundOpacity.clamp(0, 1),
           onChanged: (value) {
             context.read<ViewerBloc>().add(
               ViewerSelectedFrameStyleChanged(frameBackgroundOpacity: value),
@@ -488,7 +488,7 @@ class ViewerToolbarContextProperties extends StatelessWidget {
           min: 0,
           max: 80,
           divisions: 40,
-          value: image.style.padding.clamp(0, 80).toDouble(),
+          value: image.style.padding.clamp(0, 80),
           onChanged: (value) {
             context.read<ViewerBloc>().add(
               ViewerSelectedFrameStyleChanged(framePadding: value),

@@ -109,13 +109,13 @@ void main() {
       await service.saveEditableFrame(
         imagePath: imagePath,
         frame: frame,
-        canvasZoom: 1.0,
+        canvasZoom: 1,
       );
 
       final sidecarFile = File(service.sidecarPathForImage(imagePath));
       expect(sidecarFile.existsSync(), isTrue);
       final raw = await sidecarFile.readAsString();
-      expect(raw.contains('"version":5'), isTrue);
+      expect(raw.contains('"version":6'), isTrue);
       expect(raw.contains('"documentKind":"viewer_editable_document"'), isTrue);
     });
 
@@ -148,8 +148,11 @@ void main() {
             position: Offset(180, 120),
             endPosition: Offset(520, 320),
             text: 'Se valido guardar y editar.',
-            richTextDelta:
-                '[{\"insert\":\"Se valido \"},{\"insert\":\"guardar\",\"attributes\":{\"bold\":true}},{\"insert\":\" y \"},{\"insert\":\"editar\",\"attributes\":{\"background\":\"#FFF59D\"}},{\"insert\":\".\\n\"}]',
+            richTextDelta: '[{\"insert\":\"Se valido \"},'
+                '{\"insert\":\"guardar\",\"attributes\":{\"bold\":true}},'
+                '{\"insert\":\" y \"},{\"insert\":\"editar\",'
+                '\"attributes\":{\"background\":\"#FFF59D\"}},'
+                '{\"insert\":\".\\n\"}]',
             fontFamily: 'Georgia',
             isBold: true,
             isItalic: false,
@@ -164,7 +167,7 @@ void main() {
       await service.saveEditableFrame(
         imagePath: imagePath,
         frame: enriched,
-        canvasZoom: 1.0,
+        canvasZoom: 1,
       );
 
       final loaded = await service.loadFrameForImage(
@@ -204,7 +207,7 @@ void main() {
       await service.saveEditableFrame(
         imagePath: imagePath,
         frame: frame,
-        canvasZoom: 1.0,
+        canvasZoom: 1,
       );
 
       await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -227,7 +230,7 @@ void main() {
       await service.saveRecoveryDraft(
         imagePath: imagePath,
         frame: mutated,
-        canvasZoom: 1.0,
+        canvasZoom: 1,
       );
 
       final result = await service.loadFrameResultForImage(
@@ -271,9 +274,10 @@ void main() {
               color: 0xFF222222,
               strokeWidth: 1.5,
               textSize: 18,
-              position: image.contentViewportRect.topLeft + const Offset(40, 24),
-              endPosition:
-                  image.contentViewportRect.topLeft + const Offset(260, 144),
+              position: image.contentViewportRect.topLeft +
+                  const Offset(40, 24),
+              endPosition: image.contentViewportRect.topLeft +
+                  const Offset(260, 144),
               text: 'panel',
               richTextDelta: '[{"insert":"panel\\n"}]',
               attachedImageId: image.id,
@@ -286,7 +290,7 @@ void main() {
         await service.saveEditableFrame(
           imagePath: imagePath,
           frame: brokenFrame,
-          canvasZoom: 1.0,
+          canvasZoom: 1,
         );
 
         final loaded = await service.loadFrameForImage(

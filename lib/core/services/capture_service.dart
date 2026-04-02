@@ -19,14 +19,14 @@ class CaptureService {
   final FileSystemService _fileSystem;
   final NativeScreenCaptureService _nativeCapture;
 
-  /// Realiza una captura y la guarda como JPG en la carpeta del proyecto.
+  /// Realiza una captura y la guarda como PNG en la carpeta del proyecto.
   Future<String?> captureAndSave({
     required ProjectEntity project,
     Rect? captureRect,
   }) async {
     try {
-      // 1) Captura nativa directa a JPG (sin PNG intermedio)
-      // para mantener la maxima calidad.
+      // 1) Captura nativa directa a PNG para preservar nitidez sin perdida,
+      // especialmente en interfaces, texto y bordes.
       final imageBytes = await _nativeCapture.capturePngBytes(
         region: captureRect,
         quality: kAppDefaults.jpgQualityValue,
@@ -48,8 +48,8 @@ class CaptureService {
       final outputPath = '$projectDir/$fileName';
       await _fileSystem.createDirectory(projectDir);
 
-      // 3) Guardar los bytes JPG directamente (sin re-codificación)
-      final savedPath = await _fileSystem.saveRawJpgBytes(
+      // 3) Guardar los bytes PNG directamente sin re-codificacion.
+      final savedPath = await _fileSystem.saveRawPngBytes(
         imageBytes: imageBytes,
         outputPath: outputPath,
       );

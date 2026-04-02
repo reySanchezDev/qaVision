@@ -311,13 +311,14 @@ class ViewerDocumentPersistenceService {
     required String fallbackImagePath,
     required ViewerImageFrameDefaults defaults,
   }) async {
+    final documentVersion = (json['version'] as num?)?.toInt() ?? 1;
     final canvasRaw = json['canvasSize'];
     final canvasSize = canvasRaw is Map<String, dynamic>
         ? Size(
-            (canvasRaw['width'] as num?)?.toDouble() ?? 1500,
-            (canvasRaw['height'] as num?)?.toDouble() ?? 900,
+            (canvasRaw['width'] as num?)?.toDouble() ?? 1500.0,
+            (canvasRaw['height'] as num?)?.toDouble() ?? 900.0,
           )
-        : const Size(1500, 900);
+        : const Size(1500.0, 900.0);
     final backgroundColor = (json['backgroundColor'] as int?) ?? 0xFF111111;
 
     final elementsRaw = json['elements'];
@@ -332,8 +333,8 @@ class ViewerDocumentPersistenceService {
       final id = (raw['id'] as String? ?? '').trim();
       if (id.isEmpty) continue;
       final zIndex = (raw['zIndex'] as int?) ?? parsedElements.length;
-      final x = (raw['x'] as num?)?.toDouble() ?? 0;
-      final y = (raw['y'] as num?)?.toDouble() ?? 0;
+      final x = (raw['x'] as num?)?.toDouble() ?? 0.0;
+      final y = (raw['y'] as num?)?.toDouble() ?? 0.0;
 
       if (kind == 'image') {
         final path = (raw['path'] as String? ?? '').trim();
@@ -341,8 +342,8 @@ class ViewerDocumentPersistenceService {
         final file = io.File(path);
         if (!file.existsSync()) continue;
 
-        final width = (raw['width'] as num?)?.toDouble() ?? 0;
-        final height = (raw['height'] as num?)?.toDouble() ?? 0;
+        final width = (raw['width'] as num?)?.toDouble() ?? 0.0;
+        final height = (raw['height'] as num?)?.toDouble() ?? 0.0;
         final image = await _loadImage(path);
         final targetWidth = width > 0 ? width : image.width.toDouble();
         final targetHeight = height > 0 ? height : image.height.toDouble();
@@ -350,8 +351,8 @@ class ViewerDocumentPersistenceService {
             (raw['contentWidth'] as num?)?.toDouble() ?? targetWidth;
         final contentHeight =
             (raw['contentHeight'] as num?)?.toDouble() ?? targetHeight;
-        final contentOffsetX = (raw['contentOffsetX'] as num?)?.toDouble() ?? 0;
-        final contentOffsetY = (raw['contentOffsetY'] as num?)?.toDouble() ?? 0;
+        final contentOffsetX = (raw['contentOffsetX'] as num?)?.toDouble() ?? 0.0;
+        final contentOffsetY = (raw['contentOffsetY'] as num?)?.toDouble() ?? 0.0;
         final parentImageId = (raw['parentImageId'] as String?)?.trim();
 
         parsedElements.add(
@@ -409,8 +410,8 @@ class ViewerDocumentPersistenceService {
           if (pointRaw is! Map<String, dynamic>) continue;
           points.add(
             Offset(
-              (pointRaw['x'] as num?)?.toDouble() ?? 0,
-              (pointRaw['y'] as num?)?.toDouble() ?? 0,
+              (pointRaw['x'] as num?)?.toDouble() ?? 0.0,
+              (pointRaw['y'] as num?)?.toDouble() ?? 0.0,
             ),
           );
         }
@@ -435,9 +436,9 @@ class ViewerDocumentPersistenceService {
           id: id,
           type: type,
           color: (raw['color'] as int?) ?? 0xFFE53935,
-          strokeWidth: (raw['strokeWidth'] as num?)?.toDouble() ?? 4,
-          textSize: (raw['textSize'] as num?)?.toDouble() ?? 20,
-          opacity: (raw['opacity'] as num?)?.toDouble() ?? 1,
+          strokeWidth: (raw['strokeWidth'] as num?)?.toDouble() ?? 4.0,
+          textSize: (raw['textSize'] as num?)?.toDouble() ?? 20.0,
+          opacity: (raw['opacity'] as num?)?.toDouble() ?? 1.0,
           text: (raw['text'] as String?) ?? '',
           richTextDelta: (raw['richTextDelta'] as String?)?.trim().isNotEmpty ==
                   true
@@ -479,7 +480,10 @@ class ViewerDocumentPersistenceService {
       backgroundColor: backgroundColor,
       elements: _normalizeZ(parsedElements),
     );
-    return _migrateLegacyAnnotationSpaces(frame);
+    return _migrateLegacyAnnotationSpaces(
+      frame,
+      documentVersion: documentVersion,
+    );
   }
 
   Future<io.File> _resolveSidecarFile(String imagePath) async {
@@ -598,7 +602,7 @@ class ViewerDocumentPersistenceService {
     }
 
     final payload = <String, dynamic>{
-      'version': 5,
+      'version': 6,
       'documentKind': documentKind,
       'sourceImagePath': sourceImagePath,
       'canvasZoom': canvasZoom,
@@ -698,7 +702,10 @@ class ViewerDocumentPersistenceService {
     return completer.future;
   }
 
-  FrameState _migrateLegacyAnnotationSpaces(FrameState frame) {
+  FrameState _migrateLegacyAnnotationSpaces(
+    FrameState frame, {
+    required int documentVersion,
+  }) {
     final migrated = frame.elements.map((element) {
       if (element is! AnnotationElement) {
         return element;
@@ -716,6 +723,20 @@ class ViewerDocumentPersistenceService {
       }
 
       if (element.type == AnnotationType.richTextPanel) {
+        if (documentVersion < 6 &&
+            element.coordinateSpace == AnnotationCoordinateSpace.imageFrame) {
+          final viewportTopLeft = attachedImage.contentViewportRect.topLeft;
+          return element.copyWith(
+            position: element.position - viewportTopLeft,
+            endPosition: element.endPosition == null
+                ? null
+                : element.endPosition! - viewportTopLeft,
+            points: element.points
+                .map((point) => point - viewportTopLeft)
+                .toList(growable: false),
+            coordinateSpace: AnnotationCoordinateSpace.imageFrame,
+          );
+        }
         if (element.coordinateSpace == AnnotationCoordinateSpace.imageFrame) {
           return element;
         }

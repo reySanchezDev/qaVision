@@ -28,6 +28,8 @@ import 'package:qavision/l10n/app_localizations.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:window_manager/window_manager.dart';
 
+const _kWindowsRuntimeIconAsset = 'RECURSOS/app_icon.ico';
+
 AppWindowSingleInstance? _singleInstanceLock;
 
 Future<void> main(List<String> args) async {
@@ -136,6 +138,7 @@ Future<void> _configureWindowForRole(AppWindowRole role) async {
       await windowManager.setAlwaysOnTop(true);
       await windowManager.setSkipTaskbar(true);
       await windowManager.setPreventClose(true);
+      await windowManager.setIcon(_kWindowsRuntimeIconAsset);
       await windowManager.show();
       await windowManager.focus();
       await windowManager.setBackgroundColor(Colors.transparent);
@@ -168,6 +171,7 @@ Future<void> _configureWindowForRole(AppWindowRole role) async {
     await windowManager.setSkipTaskbar(false);
     await windowManager.setMinimumSize(const Size(900, 640));
     await windowManager.setMaximumSize(const Size(4000, 4000));
+    await windowManager.setIcon(_kWindowsRuntimeIconAsset);
     if (!isViewer) {
       await windowManager.setSize(normalSize);
       await windowManager.center();

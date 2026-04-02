@@ -9,11 +9,10 @@ import 'package:win32/win32.dart';
 
 /// Captura de pantalla nativa para Windows sin invocar herramientas del SO.
 class NativeScreenCaptureService {
-  /// Captura la pantalla principal y retorna bytes JPG de alta calidad.
+  /// Captura la pantalla principal y retorna bytes PNG sin perdida.
   ///
   /// Si [region] se provee, recorta esa zona en coordenadas de pantalla.
-  /// [quality] define la calidad JPG (1-100). Por defecto 95
-  /// para maxima nitidez.
+  /// [quality] se conserva solo por compatibilidad de API.
   Future<Uint8List> capturePngBytes({Rect? region, int quality = 95}) async {
     if (!Platform.isWindows) {
       throw UnsupportedError('NativeScreenCaptureService solo soporta Windows');
@@ -27,7 +26,7 @@ class NativeScreenCaptureService {
     }
 
     // Guardamos directamente como JPG para evitar doble codificación PNG→JPG.
-    return Uint8List.fromList(img.encodeJpg(image, quality: quality));
+    return Uint8List.fromList(img.encodePng(image));
   }
 
   _ScreenFrame _capturePrimaryScreen() {

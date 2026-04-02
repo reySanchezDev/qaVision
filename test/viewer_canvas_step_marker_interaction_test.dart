@@ -8,6 +8,8 @@ import 'package:image/image.dart' as img;
 import 'package:qavision/core/services/clipboard_service.dart';
 import 'package:qavision/core/services/file_system_service.dart';
 import 'package:qavision/core/services/share_service.dart';
+import 'package:qavision/features/settings/domain/entities/settings_entity.dart';
+import 'package:qavision/features/settings/domain/repositories/i_settings_repository.dart';
 import 'package:qavision/features/viewer/data/services/viewer_document_persistence_service.dart';
 import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
@@ -28,6 +30,16 @@ class _FakeShareService extends ShareService {
     String? text,
     String? subject,
   }) async {}
+}
+
+class _FakeSettingsRepository implements ISettingsRepository {
+  @override
+  Future<SettingsEntity> loadSettings() async {
+    return const SettingsEntity(jpgQuality: JpgQuality.max);
+  }
+
+  @override
+  Future<void> saveSettings(SettingsEntity settings) async {}
 }
 
 Future<String> _writeTestJpg(String path) async {
@@ -67,6 +79,7 @@ void main() {
         documentPersistenceService: ViewerDocumentPersistenceService(
           fileSystemService: FileSystemService(),
         ),
+        settingsRepository: _FakeSettingsRepository(),
       );
     });
 

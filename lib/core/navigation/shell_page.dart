@@ -33,6 +33,7 @@ class _ShellPageState extends State<ShellPage>
   bool _hoverExpanded = false;
   bool _nativeDragInProgress = false;
   Timer? _hoverCollapseTimer;
+  int _topmostRefreshToken = 0;
   late final AnimationController _impactController;
   FloatingDockEdge? _impactEdge;
 
@@ -53,12 +54,14 @@ class _ShellPageState extends State<ShellPage>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_syncDockingWithCurrentDisplay());
+      _scheduleTopmostRefresh();
     });
   }
 
   @override
   void dispose() {
     _hoverCollapseTimer?.cancel();
+    _topmostRefreshToken++;
     _impactController.dispose();
     windowManager.removeListener(this);
     super.dispose();
@@ -85,6 +88,26 @@ class _ShellPageState extends State<ShellPage>
       return;
     }
     await _finalizeWindowDrag();
+  }
+
+  @override
+  void onWindowBlur() {
+    _scheduleTopmostRefresh();
+  }
+
+  @override
+  void onWindowFocus() {
+    _scheduleTopmostRefresh();
+  }
+
+  @override
+  void onWindowResized() {
+    _scheduleTopmostRefresh();
+  }
+
+  @override
+  void onWindowRestore() {
+    _scheduleTopmostRefresh();
   }
 
   @override
@@ -218,10 +241,56 @@ class _ShellPageState extends State<ShellPage>
 
       final isVisible = await windowManager.isVisible();
       if (!isVisible) {
-        await windowManager.show();
+        await windowManager.show(inactive: true);
       }
+      await _ensureFloatingWindowPriority();
     } finally {
       _applyingWindowGeometry = false;
+    }
+  }
+
+  void _scheduleTopmostRefresh() {
+    final token = ++_topmostRefreshToken;
+    const refreshDelays = <Duration>[
+      Duration.zero,
+      Duration(milliseconds: 140),
+      Duration(milliseconds: 420),
+    ];
+
+    unawaited(() async {
+      for (final delay in refreshDelays) {
+        if (delay > Duration.zero) {
+          await Future<void>.delayed(delay);
+        }
+        if (!mounted || token != _topmostRefreshToken) {
+          return;
+        }
+        await _ensureFloatingWindowPriority();
+      }
+    }());
+  }
+
+  Future<void> _ensureFloatingWindowPriority() async {
+    if (!mounted) return;
+
+    final state = context.read<FloatingButtonBloc>().state;
+    if (!state.isVisible ||
+        state.isClipSessionActive ||
+        state.isRegionSelecting) {
+      return;
+    }
+
+    final isVisible = await windowManager.isVisible();
+    if (!isVisible) {
+      return;
+    }
+
+    await windowManager.setAlwaysOnTop(true);
+    await windowManager.setSkipTaskbar(true);
+
+    final isFocused = await windowManager.isFocused();
+    if (!isFocused) {
+      await windowManager.show(inactive: true);
     }
   }
 

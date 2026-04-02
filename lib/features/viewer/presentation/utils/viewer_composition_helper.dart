@@ -308,10 +308,9 @@ class ViewerCompositionHelper {
       elements: elements,
       imageZoom: scale,
     );
-    final logicalViewport = image.contentViewportRect;
     return Offset(
-      logicalViewport.left + ((canvasPoint.dx - viewport.left) / scale),
-      logicalViewport.top + ((canvasPoint.dy - viewport.top) / scale),
+      (canvasPoint.dx - viewport.left) / scale,
+      (canvasPoint.dy - viewport.top) / scale,
     );
   }
 
@@ -347,11 +346,9 @@ class ViewerCompositionHelper {
       elements: elements,
       imageZoom: scale,
     );
-    final logicalViewport = image.contentViewportRect;
-    final localOffset = framePoint - logicalViewport.topLeft;
     return Offset(
-      viewport.left + (localOffset.dx * scale),
-      viewport.top + (localOffset.dy * scale),
+      viewport.left + (framePoint.dx * scale),
+      viewport.top + (framePoint.dy * scale),
     );
   }
 

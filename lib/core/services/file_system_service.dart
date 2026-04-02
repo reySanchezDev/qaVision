@@ -3,6 +3,15 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
+/// Formato de salida para archivos de imagen exportados.
+enum SavedImageFormat {
+  /// Archivo JPG con compresion configurable.
+  jpg,
+
+  /// Archivo PNG sin perdida.
+  png,
+}
+
 /// Servicio para operaciones de sistema de archivos.
 ///
 /// Encapsula la creación de carpetas, guardado de imágenes JPG,
@@ -106,6 +115,29 @@ class FileSystemService {
     return safePath;
   }
 
+  /// Guarda bytes de imagen en el formato solicitado.
+  Future<String> saveImageBytes({
+    required Uint8List imageBytes,
+    required String outputPath,
+    required SavedImageFormat format,
+    int quality = 95,
+    bool overwrite = false,
+  }) {
+    return switch (format) {
+      SavedImageFormat.jpg => saveAsJpg(
+        imageBytes: imageBytes,
+        outputPath: outputPath,
+        quality: quality,
+        overwrite: overwrite,
+      ),
+      SavedImageFormat.png => saveRawPngBytes(
+        imageBytes: imageBytes,
+        outputPath: outputPath,
+        overwrite: overwrite,
+      ),
+    };
+  }
+
   /// Guarda bytes JPG ya codificados directamente en disco sin re-codificación.
   ///
   /// Usa este método cuando los bytes ya están en formato JPG (p.ej. captura
@@ -117,6 +149,21 @@ class FileSystemService {
     required String outputPath,
   }) async {
     final safePath = _ensureUniqueFilename('$outputPath.jpg');
+    final file = File(safePath);
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(imageBytes, flush: true);
+    return safePath;
+  }
+
+  /// Guarda bytes PNG ya codificados directamente en disco.
+  Future<String> saveRawPngBytes({
+    required Uint8List imageBytes,
+    required String outputPath,
+    bool overwrite = false,
+  }) async {
+    final safePath = overwrite
+        ? '$outputPath.png'
+        : _ensureUniqueFilename('$outputPath.png');
     final file = File(safePath);
     await file.parent.create(recursive: true);
     await file.writeAsBytes(imageBytes, flush: true);
@@ -190,13 +237,13 @@ class FileSystemService {
     final dir = Directory(projectDir);
     if (!dir.existsSync()) return 1;
 
-    final jpgFiles = dir
+    final imageFiles = dir
         .listSync()
         .whereType<File>()
-        .where((f) => f.path.toLowerCase().endsWith('.jpg'))
+        .where((f) => _isSupportedImagePath(f.path))
         .toList();
 
-    return jpgFiles.length + 1;
+    return imageFiles.length + 1;
   }
 
   /// Limpia caracteres no válidos para nombres de archivo en Windows.
@@ -214,11 +261,10 @@ class FileSystemService {
     final dir = Directory(directoryPath);
     if (!dir.existsSync()) return [];
 
-    final files = await dir
+      final files = await dir
         .list()
         .where(
-          (entity) =>
-              entity is File && entity.path.toLowerCase().endsWith('.jpg'),
+          (entity) => entity is File && _isSupportedImagePath(entity.path),
         )
         .cast<File>()
         .toList();
@@ -257,6 +303,13 @@ class FileSystemService {
     if (file.existsSync()) {
       await file.delete();
     }
+  }
+
+  bool _isSupportedImagePath(String path) {
+    final lower = path.toLowerCase();
+    return lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.png');
   }
 }
 

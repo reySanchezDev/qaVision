@@ -277,6 +277,7 @@ class ViewerToolbar extends StatelessWidget {
     ];
   }
 
+  /// Obtiene el elemento seleccionado actualmente en el estado.
   CanvasElement? _selectedElement(ViewerState state) {
     final selectedId = state.selectedElementId;
     if (selectedId == null) return null;
@@ -339,6 +340,7 @@ class ViewerToolbar extends StatelessWidget {
     };
   }
 
+  /// Inicia el flujo de selección de imagen para agregar al frame.
   Future<void> _pickAndAddImage(BuildContext context, ViewerState state) async {
     final result = await FilePicker.platform.pickFiles(type: FileType.image);
     final path = result?.files.single.path;
@@ -359,6 +361,7 @@ class ViewerToolbar extends StatelessWidget {
     );
   }
 
+  /// Resuelve la ruta del proyecto basándose en elementos actuales.
   String _resolveProjectPath(ViewerState state, String fallbackImagePath) {
     final baseImagePath = state.frame.elements
         .whereType<ImageFrameComponent>()
@@ -370,6 +373,7 @@ class ViewerToolbar extends StatelessWidget {
     return File(fallbackImagePath).parent.path;
   }
 
+  /// Resuelve los valores por defecto para frames nuevos.
   ViewerFrameDefaults _frameDefaults(BuildContext context) {
     return const ViewerFrameDefaults(
       backgroundColor: kDefaultViewerFrameBackgroundColor,
@@ -381,6 +385,7 @@ class ViewerToolbar extends StatelessWidget {
   }
 }
 
+/// Elemento interno para los items de menu desplegable.
 class _ViewerToolbarMenuItem extends StatelessWidget {
   const _ViewerToolbarMenuItem({
     required this.icon,

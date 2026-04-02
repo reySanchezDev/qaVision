@@ -14,6 +14,8 @@ import 'package:qavision/features/projects/data/repositories/project_repository.
 import 'package:qavision/features/projects/data/services/project_folder_watch_service.dart';
 import 'package:qavision/features/projects/domain/repositories/i_project_repository.dart';
 import 'package:qavision/features/projects/presentation/bloc/project_bloc.dart';
+import 'package:qavision/features/settings/data/repositories/settings_repository.dart';
+import 'package:qavision/features/settings/domain/repositories/i_settings_repository.dart';
 import 'package:qavision/features/viewer/data/services/viewer_document_persistence_service.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
 
@@ -46,6 +48,9 @@ void setupServiceLocator() {
         storageService: sl<StorageService>(),
         fileSystemService: sl<FileSystemService>(),
       ),
+    )
+    ..registerLazySingleton<ISettingsRepository>(
+      () => SettingsRepository(storageService: sl<StorageService>()),
     )
     ..registerLazySingleton<ProjectFolderWatchService>(
       ProjectFolderWatchService.new,
@@ -80,6 +85,7 @@ void setupServiceLocator() {
         clipboardService: sl<ClipboardService>(),
         shareService: sl<ShareService>(),
         documentPersistenceService: sl<ViewerDocumentPersistenceService>(),
+        settingsRepository: sl<ISettingsRepository>(),
       ),
     )
     ..registerLazySingleton<HistoryBloc>(

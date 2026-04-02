@@ -3,8 +3,9 @@
 #define MyAppPublisher "QAVision"
 #define MyAppExeName "qavision.exe"
 #define MyAppId "{{E0E5E1A8-2D57-4D73-8B13-6A647F5A9E21}"
-#define MySourceDir "..\\build\\windows\\x64\\runner\\Release"
-#define MyIconFile "..\\windows\\runner\\resources\\app_icon.ico"
+#define MySourceDir "..\build\windows\x64\runner\Release"
+#define MyIconFile "..\windows\runner\resources\app_icon.ico"
+#define MyInstalledIconFile "{app}\\app_icon.ico"
 
 [Setup]
 AppId={#MyAppId}
@@ -23,7 +24,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\dist\installer
 OutputBaseFilename=QAVision-Setup-{#MyAppVersion}
 SetupIconFile={#MyIconFile}
-UninstallDisplayIcon={app}\{#MyAppExeName}
+UninstallDisplayIcon={#MyInstalledIconFile}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -40,11 +41,12 @@ Name: "desktopicon"; Description: "Crear acceso directo en el escritorio"; Flags
 
 [Files]
 Source: "{#MySourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#MyIconFile}"; DestDir: "{app}"; DestName: "app_icon.ico"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{#MyInstalledIconFile}"
 Name: "{group}\Desinstalar {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; IconFilename: "{#MyInstalledIconFile}"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Abrir {#MyAppName}"; Flags: nowait postinstall skipifsilent

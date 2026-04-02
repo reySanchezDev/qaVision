@@ -10,6 +10,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:qavision/core/services/clipboard_service.dart';
 import 'package:qavision/core/services/file_system_service.dart';
 import 'package:qavision/core/services/share_service.dart';
+import 'package:qavision/features/settings/domain/repositories/i_settings_repository.dart';
 import 'package:qavision/features/viewer/data/services/viewer_document_persistence_service.dart';
 import 'package:qavision/features/viewer/domain/entities/image_frame_component.dart';
 import 'package:qavision/features/viewer/domain/entities/image_frame_style.dart';
@@ -33,10 +34,12 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     required ClipboardService clipboardService,
     required ShareService shareService,
     required ViewerDocumentPersistenceService documentPersistenceService,
+    required ISettingsRepository settingsRepository,
   }) : _fileSystemService = fileSystemService,
        _clipboardService = clipboardService,
        _shareService = shareService,
        _documentPersistenceService = documentPersistenceService,
+       _settingsRepository = settingsRepository,
        super(const ViewerState()) {
     on<ViewerStarted>(_onStarted);
     on<ViewerToolChanged>(_onToolChanged);
@@ -77,6 +80,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
   final ClipboardService _clipboardService;
   final ShareService _shareService;
   final ViewerDocumentPersistenceService _documentPersistenceService;
+  final ISettingsRepository _settingsRepository;
   static const _uuid = Uuid();
   static const bool _autoSaveEnabled = true;
   static const int _defaultFrameBackgroundColor = 0xFFFFFFFF;
@@ -89,6 +93,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
   bool _autoSaveInProgress = false;
   bool _autoSaveQueued = false;
   bool _hasPendingRecoveryDraft = false;
+  bool _needsInitialCanvasVisibilityNormalization = false;
   FrameState? _drawingStartFrame;
   FrameState? _interactionStartFrame;
   String? _activeImagePath;
@@ -188,7 +193,9 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         ),
       );
       _hasPendingRecoveryDraft = loadResult.recoveredFromDraft;
+      _needsInitialCanvasVisibilityNormalization = true;
     } on Exception catch (e) {
+      _needsInitialCanvasVisibilityNormalization = false;
       emit(
         state.copyWith(
           isLoading: false,
@@ -312,13 +319,16 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     final width = event.size.width.clamp(320, 12000).toDouble();
     final height = event.size.height.clamp(220, 12000).toDouble();
     final resizedFrame = state.frame.copyWith(canvasSize: Size(width, height));
-    final constrainedFrame = _constrainImagesToCanvas(
-      resizedFrame,
-      zoom: 1,
-    );
+    var nextFrame = resizedFrame;
+    if (_needsInitialCanvasVisibilityNormalization) {
+      if (_shouldNormalizeInitiallyForCanvas(resizedFrame)) {
+        nextFrame = _constrainImagesToCanvas(resizedFrame, zoom: 1);
+      }
+      _needsInitialCanvasVisibilityNormalization = false;
+    }
     emit(
       state.copyWith(
-        frame: constrainedFrame,
+        frame: nextFrame,
       ),
     );
   }
@@ -1504,33 +1514,46 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       ),
     );
     try {
+      final settings = await _settingsRepository.loadSettings();
       final bytes = await _generateCompositionBytes(
         state.frame,
         focusImageId: savePlan.focusImageId,
       );
-      final savedPath = await _fileSystemService.saveAsJpg(
+      final outputFormat = _resolveSaveImageFormat(
+        activeImagePath: activeImagePath,
+        savePlan: savePlan,
+      );
+      final savedPath = await _fileSystemService.saveImageBytes(
         imageBytes: bytes,
         outputPath: savePlan.outputPathWithoutExtension,
+        format: outputFormat,
+        quality: settings.jpgQualityValue,
         overwrite: true,
       );
       if (!savePlan.saveAsComposite) {
         _activeImagePath = savedPath;
       }
-      await _documentPersistenceService.saveEditableFrame(
-        imagePath: activeImagePath,
-        frame: savePlan.editableFrame,
-        canvasZoom: state.canvasZoom,
-      );
       if (savePlan.saveAsComposite) {
         await _documentPersistenceService.saveEditableFrame(
           imagePath: savedPath,
           frame: state.frame,
           canvasZoom: state.canvasZoom,
         );
+      } else {
+        await _documentPersistenceService.saveEditableFrame(
+          imagePath: savedPath,
+          frame: savePlan.editableFrame,
+          canvasZoom: state.canvasZoom,
+        );
       }
       await _documentPersistenceService.clearRecoveryDraft(
         imagePath: activeImagePath,
       );
+      if (savedPath != activeImagePath) {
+        await _documentPersistenceService.clearRecoveryDraft(
+          imagePath: savedPath,
+        );
+      }
       _hasPendingRecoveryDraft = false;
 
       List<String>? recent;
@@ -2100,6 +2123,17 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     return frame.copyWith(elements: elements);
   }
 
+  bool _shouldNormalizeInitiallyForCanvas(FrameState frame) {
+    final workspace = _workspaceRectForCanvas(frame.canvasSize);
+    final exportRect = ViewerDocumentGraphService.resolveExportRect(
+      ViewerDocumentGraphService.build(frame),
+    );
+    if (exportRect.isEmpty) {
+      return false;
+    }
+    return !workspace.overlaps(exportRect.inflate(1));
+  }
+
   Rect _workspaceRectForCanvas(Size canvasSize) {
     return ViewerWorkspaceLayout.resolve(canvasSize);
   }
@@ -2204,6 +2238,23 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       throw Exception('No se pudo generar bytes de composicion');
     }
     return bytes.buffer.asUint8List();
+  }
+
+  SavedImageFormat _resolveSaveImageFormat({
+    required String activeImagePath,
+    required ViewerDocumentSavePlan savePlan,
+  }) {
+    final normalizedPath = activeImagePath.trim().toLowerCase();
+
+    if (normalizedPath.endsWith('.png')) {
+      return SavedImageFormat.png;
+    }
+
+    if (savePlan.saveAsComposite) {
+      return SavedImageFormat.png;
+    }
+
+    return SavedImageFormat.jpg;
   }
 
   Rect _snapExportRect(Rect rect, {required double pixelRatio}) {

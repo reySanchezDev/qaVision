@@ -1,5 +1,5 @@
-import 'dart:math' as math;
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter_quill/flutter_quill.dart' as fq;
 import 'package:flutter/gestures.dart';
@@ -805,15 +805,6 @@ class _ViewerPageState extends State<ViewerPage> {
           onZoomOut: () => _zoomOut(state),
         ),
         const Spacer(),
-        const Text(
-          'Los controles quedan fuera del workspace '
-          'para no tapar la evidencia.',
-          style: TextStyle(
-            color: Colors.white38,
-            fontSize: 11,
-            height: 1.3,
-          ),
-        ),
       ],
     );
   }
@@ -877,12 +868,10 @@ class _ViewerPageState extends State<ViewerPage> {
     final maxZoom = _maxZoomForState(state);
     context.read<ViewerBloc>().add(
       ViewerZoomChanged(
-        1
-            .clamp(
-              ViewerViewportTransformService.defaultEditableMinZoom,
-              maxZoom,
-            )
-            .toDouble(),
+        1.0.clamp(
+          ViewerViewportTransformService.defaultEditableMinZoom,
+          maxZoom,
+        ),
       ),
     );
   }
@@ -916,7 +905,9 @@ class _ViewerPageState extends State<ViewerPage> {
     }
     final panel = _selectedRichTextPanel(state);
     final scrollController = _richTextScrollController;
-    if (panel == null || scrollController == null || !scrollController.hasClients) {
+    if (panel == null ||
+        scrollController == null ||
+        !scrollController.hasClients) {
       return false;
     }
 

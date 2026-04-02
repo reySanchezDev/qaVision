@@ -268,7 +268,9 @@ void main() {
       }
     });
 
-    test('removeFolder quita la carpeta indicada y conserva las demas', () async {
+    test(
+      'removeFolder quita la carpeta indicada y conserva las demas',
+      () async {
       final tempDir = await Directory.systemTemp.createTemp('qavision_remove_');
       StorageService? storage;
       try {
