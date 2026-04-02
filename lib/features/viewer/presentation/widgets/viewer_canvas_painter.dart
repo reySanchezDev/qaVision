@@ -10,6 +10,7 @@ class ViewerCanvasPainter extends CustomPainter {
     required this.frame,
     required this.selectedElementId,
     required this.contentZoom,
+    this.hiddenElementId,
   });
 
   /// Estado visual del frame.
@@ -21,12 +22,16 @@ class ViewerCanvasPainter extends CustomPainter {
   /// Zoom visual aplicado al contenido del frame.
   final double contentZoom;
 
+  /// Elemento que no debe pintarse porque se esta editando inline.
+  final String? hiddenElementId;
+
   @override
   void paint(Canvas canvas, Size size) {
     ViewerCompositionHelper.paintFrame(
       canvas,
       frame,
       contentZoom: contentZoom,
+      hiddenElementId: hiddenElementId,
     );
     _drawFrameOutline(canvas, frame.canvasSize);
 
@@ -87,6 +92,7 @@ class ViewerCanvasPainter extends CustomPainter {
   bool shouldRepaint(covariant ViewerCanvasPainter oldDelegate) {
     return oldDelegate.frame != frame ||
         oldDelegate.selectedElementId != selectedElementId ||
-        oldDelegate.contentZoom != contentZoom;
+        oldDelegate.contentZoom != contentZoom ||
+        oldDelegate.hiddenElementId != hiddenElementId;
   }
 }

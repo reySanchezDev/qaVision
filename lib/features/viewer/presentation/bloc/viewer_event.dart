@@ -64,6 +64,12 @@ final class ViewerToolChanged extends ViewerEvent {
   List<Object?> get props => [tool];
 }
 
+/// Resets the step marker sequence so the next marker starts from 1.
+final class ViewerStepMarkerResetRequested extends ViewerEvent {
+  /// Creates [ViewerStepMarkerResetRequested].
+  const ViewerStepMarkerResetRequested();
+}
+
 /// Changes tool properties.
 final class ViewerPropertiesChanged extends ViewerEvent {
   /// Creates [ViewerPropertiesChanged].
@@ -72,6 +78,15 @@ final class ViewerPropertiesChanged extends ViewerEvent {
     this.strokeWidth,
     this.textSize,
     this.opacity,
+    this.fontFamily,
+    this.isBold,
+    this.isItalic,
+    this.hasShadow,
+    this.panelBackgroundColor,
+    this.panelBorderColor,
+    this.panelBorderWidth,
+    this.textHighlightColor,
+    this.panelAlignment,
   });
 
   /// Active color.
@@ -86,8 +101,49 @@ final class ViewerPropertiesChanged extends ViewerEvent {
   /// Active opacity.
   final double? opacity;
 
+  /// Active font family for rich text blocks.
+  final String? fontFamily;
+
+  /// Active bold flag.
+  final bool? isBold;
+
+  /// Active italic flag.
+  final bool? isItalic;
+
+  /// Active panel shadow flag.
+  final bool? hasShadow;
+
+  /// Active panel background color.
+  final int? panelBackgroundColor;
+
+  /// Active panel border color.
+  final int? panelBorderColor;
+
+  /// Active panel border width.
+  final double? panelBorderWidth;
+
+  /// Active highlight color for rich text selections.
+  final int? textHighlightColor;
+
+  /// Active text block alignment.
+  final ViewerTextPanelAlignment? panelAlignment;
+
   @override
-  List<Object?> get props => [color, strokeWidth, textSize, opacity];
+  List<Object?> get props => [
+    color,
+    strokeWidth,
+    textSize,
+    opacity,
+    fontFamily,
+    isBold,
+    isItalic,
+    hasShadow,
+    panelBackgroundColor,
+    panelBorderColor,
+    panelBorderWidth,
+    textHighlightColor,
+    panelAlignment,
+  ];
 }
 
 /// Changes canvas background color.
@@ -174,6 +230,18 @@ final class ViewerTextAdded extends ViewerEvent {
   List<Object?> get props => [position, text];
 }
 
+/// Adds an inline rich text panel at a position.
+final class ViewerRichTextPanelAdded extends ViewerEvent {
+  /// Creates [ViewerRichTextPanelAdded].
+  const ViewerRichTextPanelAdded(this.position);
+
+  /// Placement position.
+  final Offset position;
+
+  @override
+  List<Object?> get props => [position];
+}
+
 /// Undo action.
 final class ViewerUndoRequested extends ViewerEvent {
   /// Creates [ViewerUndoRequested].
@@ -214,6 +282,12 @@ final class ViewerRecentCapturesRequested extends ViewerEvent {
 
   @override
   List<Object?> get props => [projectPath];
+}
+
+/// Limpia la cinta de capturas recientes y su carpeta activa.
+final class ViewerRecentCapturesCleared extends ViewerEvent {
+  /// Creates [ViewerRecentCapturesCleared].
+  const ViewerRecentCapturesCleared();
 }
 
 /// Reorders thumbnails inside the recent strip.
@@ -437,6 +511,24 @@ final class ViewerSelectedElementTextUpdated extends ViewerEvent {
 
   @override
   List<Object?> get props => [text];
+}
+
+/// Updates plain text and Delta payload of the selected rich text panel.
+final class ViewerSelectedElementRichTextUpdated extends ViewerEvent {
+  /// Creates [ViewerSelectedElementRichTextUpdated].
+  const ViewerSelectedElementRichTextUpdated({
+    required this.plainText,
+    required this.deltaJson,
+  });
+
+  /// Plain text extracted from the editor.
+  final String plainText;
+
+  /// Serialized Delta JSON.
+  final String deltaJson;
+
+  @override
+  List<Object?> get props => [plainText, deltaJson];
 }
 
 /// Changes z-order.

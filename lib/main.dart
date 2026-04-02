@@ -25,6 +25,7 @@ import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
 import 'package:qavision/features/viewer/presentation/pages/viewer_page.dart';
 import 'package:qavision/l10n/app_localizations.dart';
+import 'package:flutter_quill/flutter_quill.dart';
 import 'package:window_manager/window_manager.dart';
 
 AppWindowSingleInstance? _singleInstanceLock;
@@ -438,7 +439,10 @@ class _BaseMaterialApp extends StatelessWidget {
       navigatorKey: AppRouter.navigatorKey,
       title: 'QAVision',
       debugShowCheckedModeBanner: false,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: [
+        FlutterQuillLocalizations.delegate,
+        ...AppLocalizations.localizationsDelegates,
+      ],
       supportedLocales: AppLocalizations.supportedLocales,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(

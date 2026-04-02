@@ -109,13 +109,79 @@ void main() {
       await service.saveEditableFrame(
         imagePath: imagePath,
         frame: frame,
+        canvasZoom: 1.0,
       );
 
       final sidecarFile = File(service.sidecarPathForImage(imagePath));
       expect(sidecarFile.existsSync(), isTrue);
       final raw = await sidecarFile.readAsString();
-      expect(raw.contains('"version":3'), isTrue);
+      expect(raw.contains('"version":5'), isTrue);
       expect(raw.contains('"documentKind":"viewer_editable_document"'), isTrue);
+    });
+
+    test('persiste y recupera bloques de texto enriquecido', () async {
+      final imagePath = await _writeTestJpg(
+        '${tempDir.path}${Platform.pathSeparator}rich_panel.jpg',
+      );
+
+      const defaults = ViewerImageFrameDefaults(
+        backgroundColor: 0xFFFFFFFF,
+        backgroundOpacity: 1,
+        borderColor: 0x00000000,
+        borderWidth: 0,
+        padding: 0,
+      );
+
+      final frame = await service.loadFrameForImage(
+        imagePath: imagePath,
+        defaults: defaults,
+      );
+      final enriched = frame.copyWith(
+        elements: [
+          ...frame.elements,
+          const AnnotationElement(
+            id: 'rich-panel',
+            type: AnnotationType.richTextPanel,
+            color: 0xFF123456,
+            strokeWidth: 2,
+            textSize: 22,
+            position: Offset(180, 120),
+            endPosition: Offset(520, 320),
+            text: 'Se valido guardar y editar.',
+            richTextDelta:
+                '[{\"insert\":\"Se valido \"},{\"insert\":\"guardar\",\"attributes\":{\"bold\":true}},{\"insert\":\" y \"},{\"insert\":\"editar\",\"attributes\":{\"background\":\"#FFF59D\"}},{\"insert\":\".\\n\"}]',
+            fontFamily: 'Georgia',
+            isBold: true,
+            isItalic: false,
+            hasShadow: true,
+            backgroundColor: 0xF7FFF8E1,
+            panelAlignment: ViewerTextPanelAlignment.justify,
+            zIndex: 88,
+          ),
+        ],
+      );
+
+      await service.saveEditableFrame(
+        imagePath: imagePath,
+        frame: enriched,
+        canvasZoom: 1.0,
+      );
+
+      final loaded = await service.loadFrameForImage(
+        imagePath: imagePath,
+        defaults: defaults,
+      );
+      final panel = loaded.elements
+          .whereType<AnnotationElement>()
+          .firstWhere((element) => element.id == 'rich-panel');
+      expect(panel.type, AnnotationType.richTextPanel);
+      expect(panel.fontFamily, 'Georgia');
+      expect(panel.isBold, isTrue);
+      expect(panel.hasShadow, isTrue);
+      expect(panel.backgroundColor, 0xF7FFF8E1);
+      expect(panel.panelAlignment, ViewerTextPanelAlignment.justify);
+      expect(panel.text, contains('editar'));
+      expect(panel.richTextDelta, contains('background'));
     });
 
     test('recupera borrador cuando es mas nuevo que el sidecar', () async {
@@ -138,6 +204,7 @@ void main() {
       await service.saveEditableFrame(
         imagePath: imagePath,
         frame: frame,
+        canvasZoom: 1.0,
       );
 
       await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -160,6 +227,7 @@ void main() {
       await service.saveRecoveryDraft(
         imagePath: imagePath,
         frame: mutated,
+        canvasZoom: 1.0,
       );
 
       final result = await service.loadFrameResultForImage(
@@ -173,5 +241,64 @@ void main() {
         isTrue,
       );
     });
+
+    test(
+      'normaliza panel de texto adjunto reciente al espacio imageFrame al cargar',
+      () async {
+        final imagePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}recent_rich_panel.jpg',
+        );
+
+        const defaults = ViewerImageFrameDefaults(
+          backgroundColor: 0xFFFFFFFF,
+          backgroundOpacity: 1,
+          borderColor: 0x00000000,
+          borderWidth: 0,
+          padding: 0,
+        );
+
+        final baseFrame = await service.loadFrameForImage(
+          imagePath: imagePath,
+          defaults: defaults,
+        );
+        final image = baseFrame.elements.whereType<ImageFrameComponent>().first;
+        final brokenFrame = baseFrame.copyWith(
+          elements: [
+            ...baseFrame.elements,
+            AnnotationElement(
+              id: 'recent-panel',
+              type: AnnotationType.richTextPanel,
+              color: 0xFF222222,
+              strokeWidth: 1.5,
+              textSize: 18,
+              position: image.contentViewportRect.topLeft + const Offset(40, 24),
+              endPosition:
+                  image.contentViewportRect.topLeft + const Offset(260, 144),
+              text: 'panel',
+              richTextDelta: '[{"insert":"panel\\n"}]',
+              attachedImageId: image.id,
+              coordinateSpace: AnnotationCoordinateSpace.workspace,
+              zIndex: 50,
+            ),
+          ],
+        );
+
+        await service.saveEditableFrame(
+          imagePath: imagePath,
+          frame: brokenFrame,
+          canvasZoom: 1.0,
+        );
+
+        final loaded = await service.loadFrameForImage(
+          imagePath: imagePath,
+          defaults: defaults,
+        );
+        final panel = loaded.elements
+            .whereType<AnnotationElement>()
+            .firstWhere((element) => element.id == 'recent-panel');
+
+        expect(panel.coordinateSpace, AnnotationCoordinateSpace.imageFrame);
+      },
+    );
   });
 }

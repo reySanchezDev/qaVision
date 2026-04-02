@@ -11,7 +11,7 @@ const PostCaptureAction kDefaultPostCaptureAction =
     PostCaptureAction.saveSilent;
 
 /// Indica si una captura debe copiarse al portapapeles.
-const bool kDefaultCopyToClipboard = false;
+const bool kDefaultCopyToClipboard = true;
 
 /// Indica si el panel flotante arranca visible.
 const bool kDefaultShowFloatingButton = true;

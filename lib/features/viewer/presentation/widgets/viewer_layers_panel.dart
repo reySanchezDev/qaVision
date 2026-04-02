@@ -7,20 +7,44 @@ import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_state.dart';
 
-/// Panel compacto de capas basado en el arbol real del documento.
+/// Lados permitidos para acoplar el panel de capas.
+enum ViewerLayersDockSide {
+  /// Acoplado al borde izquierdo del workspace.
+  left,
+
+  /// Acoplado al borde derecho del workspace.
+  right,
+}
+
+/// Panel de capas integrado al layout del visor.
 class ViewerLayersPanel extends StatelessWidget {
-  /// Crea el panel de capas del visor.
+  /// Crea una instancia de [ViewerLayersPanel].
   const ViewerLayersPanel({
+    required this.dockSide,
     required this.onToggleVisibility,
-    this.isVisible = true,
+    this.onHeaderDragStart,
+    this.onHeaderDragUpdate,
+    this.onHeaderDragEnd,
     super.key,
   });
+
+  /// Ancho fijo del panel dockeado.
+  static const double dockedWidth = 312;
+
+  /// Lado en el que queda acoplado.
+  final ViewerLayersDockSide dockSide;
 
   /// Alterna la visibilidad del panel.
   final VoidCallback onToggleVisibility;
 
-  /// Indica si el panel esta expandido.
-  final bool isVisible;
+  /// Inicia un arrastre del encabezado.
+  final GestureDragStartCallback? onHeaderDragStart;
+
+  /// Actualiza el arrastre del encabezado.
+  final GestureDragUpdateCallback? onHeaderDragUpdate;
+
+  /// Finaliza el arrastre del encabezado.
+  final GestureDragEndCallback? onHeaderDragEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -46,161 +70,146 @@ class ViewerLayersPanel extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        return Align(
-          alignment: Alignment.topRight,
-          child: Padding(
-            padding: const EdgeInsets.only(top: 14, right: 14),
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 180),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              child: isVisible
-                  ? ConstrainedBox(
-                      key: const ValueKey('layers-expanded'),
-                      constraints: const BoxConstraints(
-                        maxWidth: 300,
-                        maxHeight: 320,
-                      ),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: const Color(0xEE171A1F),
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(color: Colors.white10),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Colors.black45,
-                              blurRadius: 18,
-                              offset: Offset(0, 12),
-                            ),
-                          ],
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(14, 12, 10, 10),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.account_tree_outlined,
-                                    size: 16,
-                                    color: Colors.white70,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const Text(
-                                    'Capas',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  Text(
-                                    '${entries.length}',
-                                    style: const TextStyle(
-                                      color: Colors.white54,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  _LayersVisibilityButton(
-                                    tooltip: 'Ocultar panel de capas',
-                                    icon: Icons.visibility_off_outlined,
-                                    onPressed: onToggleVisibility,
-                                  ),
-                                ],
-                              ),
-                              if (selectionPath.isNotEmpty) ...[
-                                const SizedBox(height: 10),
-                                Wrap(
-                                  spacing: 6,
-                                  runSpacing: 6,
-                                  children: selectionPath
-                                      .map(
-                                        (node) => _SelectionChip(
-                                          label:
-                                              entryById[node.id]?.label ??
-                                              node.id,
-                                        ),
-                                      )
-                                      .toList(growable: false),
-                                ),
-                              ],
-                              const SizedBox(height: 10),
-                              Expanded(
-                                child: ListView.separated(
-                                  padding: EdgeInsets.zero,
-                                  itemCount: entries.length,
-                                  separatorBuilder: (_, _) =>
-                                      const SizedBox(height: 4),
-                                  itemBuilder: (context, index) {
-                                    final entry = entries[index];
-                                    return _LayerTile(entry: entry);
-                                  },
-                                ),
-                              ),
-                            ],
+        final separatorBorder = dockSide == ViewerLayersDockSide.left
+            ? const Border(
+                right: BorderSide(color: Colors.white10),
+              )
+            : const Border(
+                left: BorderSide(color: Colors.white10),
+              );
+
+        return Container(
+          width: dockedWidth,
+          decoration: BoxDecoration(
+            color: const Color(0xFF171A1F),
+            border: separatorBorder,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _LayersHeader(
+                dockSide: dockSide,
+                entryCount: entries.length,
+                onToggleVisibility: onToggleVisibility,
+                onHeaderDragStart: onHeaderDragStart,
+                onHeaderDragUpdate: onHeaderDragUpdate,
+                onHeaderDragEnd: onHeaderDragEnd,
+              ),
+              if (selectionPath.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: selectionPath
+                        .map(
+                          (node) => _SelectionChip(
+                            label: entryById[node.id]?.label ?? node.id,
                           ),
-                        ),
-                      ),
-                    )
-                  : DecoratedBox(
-                      key: const ValueKey('layers-collapsed'),
-                      decoration: BoxDecoration(
-                        color: const Color(0xEE171A1F),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: Colors.white10),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Colors.black45,
-                            blurRadius: 14,
-                            offset: Offset(0, 10),
-                          ),
-                        ],
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.account_tree_outlined,
-                              size: 16,
-                              color: Colors.white70,
-                            ),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Capas',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              '${entries.length}',
-                              style: const TextStyle(
-                                color: Colors.white54,
-                                fontSize: 12,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            _LayersVisibilityButton(
-                              tooltip: 'Mostrar panel de capas',
-                              icon: Icons.visibility_outlined,
-                              onPressed: onToggleVisibility,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-            ),
+                        )
+                        .toList(growable: false),
+                  ),
+                ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                  child: ListView.separated(
+                    padding: EdgeInsets.zero,
+                    itemCount: entries.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 4),
+                    itemBuilder: (context, index) {
+                      final entry = entries[index];
+                      return _LayerTile(entry: entry);
+                    },
+                  ),
+                ),
+              ),
+            ],
           ),
         );
       },
+    );
+  }
+}
+
+class _LayersHeader extends StatelessWidget {
+  const _LayersHeader({
+    required this.dockSide,
+    required this.entryCount,
+    required this.onToggleVisibility,
+    this.onHeaderDragStart,
+    this.onHeaderDragUpdate,
+    this.onHeaderDragEnd,
+  });
+
+  final ViewerLayersDockSide dockSide;
+  final int entryCount;
+  final VoidCallback onToggleVisibility;
+  final GestureDragStartCallback? onHeaderDragStart;
+  final GestureDragUpdateCallback? onHeaderDragUpdate;
+  final GestureDragEndCallback? onHeaderDragEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragStart: onHeaderDragStart,
+      onHorizontalDragUpdate: onHeaderDragUpdate,
+      onHorizontalDragEnd: onHeaderDragEnd,
+      child: Container(
+        height: 52,
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        decoration: const BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: Colors.white10),
+          ),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.account_tree_outlined,
+              size: 16,
+              color: Colors.white70,
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'Capas',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '$entryCount',
+              style: const TextStyle(
+                color: Colors.white54,
+                fontSize: 12,
+              ),
+            ),
+            const Spacer(),
+            Icon(
+              dockSide == ViewerLayersDockSide.left
+                  ? Icons.align_horizontal_left_rounded
+                  : Icons.align_horizontal_right_rounded,
+              size: 16,
+              color: Colors.white38,
+            ),
+            const SizedBox(width: 8),
+            const Icon(
+              Icons.drag_indicator_rounded,
+              size: 18,
+              color: Colors.white38,
+            ),
+            const SizedBox(width: 8),
+            _LayersVisibilityButton(
+              tooltip: 'Ocultar panel de capas',
+              icon: Icons.visibility_off_outlined,
+              onPressed: onToggleVisibility,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

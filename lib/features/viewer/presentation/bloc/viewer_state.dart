@@ -8,10 +8,20 @@ class ViewerState extends Equatable {
     this.frame = const FrameState(),
     this.canvasZoom = 1,
     this.activeTool = AnnotationType.selection,
+    this.activeStepMarkerNext = 1,
     this.activeColor = 0xFFE53935,
     this.activeStrokeWidth = 4,
     this.activeTextSize = 20,
     this.activeOpacity = 0.28,
+    this.activeFontFamily = 'Segoe UI',
+    this.activeTextBold = false,
+    this.activeTextItalic = false,
+    this.activeTextShadow = false,
+    this.activeTextPanelBackgroundColor = 0xF6FFFFFF,
+    this.activeTextPanelBorderColor = 0x61E53935,
+    this.activeTextPanelBorderWidth = 1.2,
+    this.activeTextHighlightColor = 0xFFFFF59D,
+    this.activeTextPanelAlignment = ViewerTextPanelAlignment.justify,
     this.undoStack = const [],
     this.redoStack = const [],
     this.isDrawing = false,
@@ -34,6 +44,9 @@ class ViewerState extends Equatable {
   /// Active drawing tool.
   final AnnotationType activeTool;
 
+  /// Next number for the step marker tool.
+  final int activeStepMarkerNext;
+
   /// Active color.
   final int activeColor;
 
@@ -45,6 +58,33 @@ class ViewerState extends Equatable {
 
   /// Active opacity for tools that support transparency.
   final double activeOpacity;
+
+  /// Active font family for rich text blocks.
+  final String activeFontFamily;
+
+  /// Active bold state for rich text blocks.
+  final bool activeTextBold;
+
+  /// Active italic state for rich text blocks.
+  final bool activeTextItalic;
+
+  /// Active shadow state for rich text blocks.
+  final bool activeTextShadow;
+
+  /// Active background color for rich text blocks.
+  final int activeTextPanelBackgroundColor;
+
+  /// Active border color for rich text blocks.
+  final int activeTextPanelBorderColor;
+
+  /// Active border width for rich text blocks.
+  final double activeTextPanelBorderWidth;
+
+  /// Active highlight color for rich text selections.
+  final int activeTextHighlightColor;
+
+  /// Active paragraph alignment for rich text blocks.
+  final ViewerTextPanelAlignment activeTextPanelAlignment;
 
   /// Undo history.
   final List<FrameState> undoStack;
@@ -87,10 +127,20 @@ class ViewerState extends Equatable {
     FrameState? frame,
     double? canvasZoom,
     AnnotationType? activeTool,
+    int? activeStepMarkerNext,
     int? activeColor,
     double? activeStrokeWidth,
     double? activeTextSize,
     double? activeOpacity,
+    String? activeFontFamily,
+    bool? activeTextBold,
+    bool? activeTextItalic,
+    bool? activeTextShadow,
+    int? activeTextPanelBackgroundColor,
+    int? activeTextPanelBorderColor,
+    double? activeTextPanelBorderWidth,
+    int? activeTextHighlightColor,
+    ViewerTextPanelAlignment? activeTextPanelAlignment,
     List<FrameState>? undoStack,
     List<FrameState>? redoStack,
     bool? isDrawing,
@@ -112,10 +162,25 @@ class ViewerState extends Equatable {
       frame: frame ?? this.frame,
       canvasZoom: canvasZoom ?? this.canvasZoom,
       activeTool: activeTool ?? this.activeTool,
+      activeStepMarkerNext: activeStepMarkerNext ?? this.activeStepMarkerNext,
       activeColor: activeColor ?? this.activeColor,
       activeStrokeWidth: activeStrokeWidth ?? this.activeStrokeWidth,
       activeTextSize: activeTextSize ?? this.activeTextSize,
       activeOpacity: activeOpacity ?? this.activeOpacity,
+      activeFontFamily: activeFontFamily ?? this.activeFontFamily,
+      activeTextBold: activeTextBold ?? this.activeTextBold,
+      activeTextItalic: activeTextItalic ?? this.activeTextItalic,
+      activeTextShadow: activeTextShadow ?? this.activeTextShadow,
+      activeTextPanelBackgroundColor:
+          activeTextPanelBackgroundColor ?? this.activeTextPanelBackgroundColor,
+      activeTextPanelBorderColor:
+          activeTextPanelBorderColor ?? this.activeTextPanelBorderColor,
+      activeTextPanelBorderWidth:
+          activeTextPanelBorderWidth ?? this.activeTextPanelBorderWidth,
+      activeTextHighlightColor:
+          activeTextHighlightColor ?? this.activeTextHighlightColor,
+      activeTextPanelAlignment:
+          activeTextPanelAlignment ?? this.activeTextPanelAlignment,
       undoStack: undoStack ?? this.undoStack,
       redoStack: redoStack ?? this.redoStack,
       isDrawing: isDrawing ?? this.isDrawing,
@@ -145,10 +210,20 @@ class ViewerState extends Equatable {
     frame,
     canvasZoom,
     activeTool,
+    activeStepMarkerNext,
     activeColor,
     activeStrokeWidth,
     activeTextSize,
     activeOpacity,
+    activeFontFamily,
+    activeTextBold,
+    activeTextItalic,
+    activeTextShadow,
+    activeTextPanelBackgroundColor,
+    activeTextPanelBorderColor,
+    activeTextPanelBorderWidth,
+    activeTextHighlightColor,
+    activeTextPanelAlignment,
     undoStack,
     redoStack,
     isDrawing,

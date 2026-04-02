@@ -92,6 +92,7 @@ class ViewerDocumentSelectionService {
         AnnotationType.highlighter => 'Highlighter',
         AnnotationType.pencil => 'Lapiz',
         AnnotationType.text => 'Texto',
+        AnnotationType.richTextPanel => 'Descripcion',
         AnnotationType.commentBubble => 'Burbuja',
         AnnotationType.blur => 'Blur',
         AnnotationType.stepMarker => 'Paso',
@@ -100,6 +101,7 @@ class ViewerDocumentSelectionService {
       };
       if (element.text.trim().isNotEmpty &&
           (element.type == AnnotationType.text ||
+              element.type == AnnotationType.richTextPanel ||
               element.type == AnnotationType.commentBubble ||
               element.type == AnnotationType.stepMarker)) {
         final compact = element.text.trim();

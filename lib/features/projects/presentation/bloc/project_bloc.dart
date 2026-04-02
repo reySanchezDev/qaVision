@@ -25,6 +25,7 @@ class ProjectBloc extends Bloc<ProjectEvent, ProjectState> {
     on<ProjectsStorageSynced>(_onStorageSynced);
     on<ProjectsFilesystemSynced>(_onFilesystemSynced);
     on<ProjectFolderSelected>(_onFolderSelected);
+    on<ProjectFolderRemoved>(_onFolderRemoved);
     on<ProjectFolderReplacedAt>(_onFolderReplacedAt);
     on<ProjectFolderMovedDetected>(_onFolderMovedDetected);
     on<ProjectCreated>(_onCreated);
@@ -150,6 +151,20 @@ class ProjectBloc extends Bloc<ProjectEvent, ProjectState> {
       await _restartFilesystemWatch(projects);
     } on Exception catch (e) {
       emit(ProjectError('Error al seleccionar carpeta: $e', exception: e));
+    }
+  }
+
+  Future<void> _onFolderRemoved(
+    ProjectFolderRemoved event,
+    Emitter<ProjectState> emit,
+  ) async {
+    try {
+      await _repository.removeFolder(event.folderPath);
+      final projects = await _repository.reconcileWithDisk();
+      emit(ProjectLoadSuccess(projects));
+      await _restartFilesystemWatch(projects);
+    } on Exception catch (e) {
+      emit(ProjectError('Error al quitar carpeta: $e', exception: e));
     }
   }
 

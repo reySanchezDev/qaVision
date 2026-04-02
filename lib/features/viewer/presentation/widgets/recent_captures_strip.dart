@@ -14,19 +14,28 @@ import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_state.dart';
 import 'package:qavision/features/viewer/presentation/widgets/recent_strip/recent_strip_frame_defaults.dart';
 import 'package:qavision/features/viewer/presentation/widgets/recent_strip/recent_strip_project_slot_control.dart';
-import 'package:qavision/features/viewer/presentation/widgets/recent_strip/recent_strip_save_indicator.dart';
 import 'package:qavision/features/viewer/presentation/widgets/recent_strip/recent_strip_thumbnail_tile.dart';
 
 /// Bottom strip with preferred slots and thumbnails for selected project.
 class RecentCapturesStrip extends StatefulWidget {
   /// Creates [RecentCapturesStrip].
-  const RecentCapturesStrip({super.key});
+  const RecentCapturesStrip({
+    this.utilityPane,
+    super.key,
+  });
+
+  /// Bloque fijo de utilidades ubicado al lado derecho de la cinta.
+  final Widget? utilityPane;
 
   @override
   State<RecentCapturesStrip> createState() => _RecentCapturesStripState();
 }
 
 class _RecentCapturesStripState extends State<RecentCapturesStrip> {
+  static const double _addFolderControlWidth = 164;
+  static const double _addFolderControlGap = 10;
+  static const int _maxProjects = 6;
+
   final ScrollController _scrollController = ScrollController();
   bool _seededFromProjects = false;
 
@@ -44,10 +53,27 @@ class _RecentCapturesStripState extends State<RecentCapturesStrip> {
         color: Color(0xFF141414),
         border: Border(top: BorderSide(color: Colors.white10)),
       ),
-      child: Column(
+      child: Row(
         children: [
-          _buildSlotSelectorRow(context),
-          Expanded(child: _buildThumbnailsRow()),
+          Expanded(
+            child: Column(
+              children: [
+                _buildSlotSelectorRow(context),
+                Expanded(child: _buildThumbnailsRow()),
+              ],
+            ),
+          ),
+          if (widget.utilityPane != null)
+            Container(
+              width: 260,
+              decoration: const BoxDecoration(
+                border: Border(left: BorderSide(color: Colors.white10)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                child: widget.utilityPane,
+              ),
+            ),
         ],
       ),
     );
@@ -71,54 +97,96 @@ class _RecentCapturesStripState extends State<RecentCapturesStrip> {
                 final selectedPath = _normalizePath(
                   viewerState.recentProjectPath ?? '',
                 );
-                return Row(
+                final canAddMoreProjects = projects.length < _maxProjects;
+                return Stack(
                   children: [
-                    Expanded(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: List<Widget>.generate(3, (slotIndex) {
-                            final project = slotIndex < projects.length
-                                ? projects[slotIndex]
-                                : null;
-                            final isSelected =
-                                project != null &&
-                                _normalizePath(project.folderPath) ==
-                                    selectedPath;
-
-                            return Padding(
-                              padding: EdgeInsets.only(
-                                right: slotIndex == 2 ? 0 : 8,
-                              ),
-                              child: RecentStripProjectSlotControl(
-                                slotIndex: slotIndex,
-                                project: project,
-                                isSelected: isSelected,
-                                onSelect: project == null
-                                    ? null
-                                    : () => _selectProjectFolder(
+                    Positioned.fill(
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                          right:
+                              _addFolderControlWidth +
+                              _addFolderControlGap +
+                              16,
+                        ),
+                        child: ClipRect(
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                ...projects.asMap().entries.map((entry) {
+                                  final project = entry.value;
+                                  final isSelected =
+                                      _normalizePath(project.folderPath) ==
+                                      selectedPath;
+                                  return Padding(
+                                    padding: const EdgeInsets.only(right: 8),
+                                    child: RecentStripProjectSlotControl(
+                                      project: project,
+                                      isSelected: isSelected,
+                                      onSelect: () => _selectProjectFolder(
                                         context,
                                         project.folderPath,
                                       ),
-                                onReplace: () => _replaceSlotFolder(
-                                  context,
-                                  slotIndex: slotIndex,
-                                ),
-                              ),
-                            );
-                          }),
+                                      onReplace: () => _replaceProjectFolder(
+                                        context,
+                                        entry.key,
+                                        project.folderPath,
+                                        selectedPath,
+                                      ),
+                                      onRemove: () => _removeProjectFolder(
+                                        context,
+                                        project.folderPath,
+                                        projects,
+                                        selectedPath,
+                                      ),
+                                    ),
+                                  );
+                                }),
+                                const SizedBox(width: 16),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                    if (kAppDefaults.showSavedIndicator) ...[
-                      const SizedBox(width: 10),
-                      RecentStripSaveIndicator(
-                        isAutoSaving: viewerState.isAutoSaving,
-                        hasFinalSave:
-                            (viewerState.autoSavePath ?? '').trim().isNotEmpty,
-                        recoveredSession: viewerState.recoveredSession,
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        padding: const EdgeInsets.only(
+                          left: _addFolderControlGap,
+                        ),
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Color(0x00141414),
+                              Color(0xCC141414),
+                              Color(0xFF141414),
+                            ],
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 1,
+                              height: 24,
+                              color: Colors.white10,
+                            ),
+                            const SizedBox(width: 8),
+                            const SizedBox(width: 2),
+                            SizedBox(
+                              width: _addFolderControlWidth,
+                              child: RecentStripAddFolderControl(
+                                enabled: canAddMoreProjects,
+                                onPressed: () => _addProjectFolder(context),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
+                    ),
                   ],
                 );
               },
@@ -206,25 +274,82 @@ class _RecentCapturesStripState extends State<RecentCapturesStrip> {
     });
   }
 
-  Future<void> _replaceSlotFolder(
-    BuildContext context, {
-    required int slotIndex,
-  }) async {
+  Future<void> _addProjectFolder(BuildContext context) async {
     final projectBloc = context.read<ProjectBloc>();
     final viewerBloc = context.read<ViewerBloc>();
+    final projectState = projectBloc.state;
+    if (projectState is ProjectLoadSuccess &&
+        projectState.projects.length >= _maxProjects) {
+      return;
+    }
     final selectedPath = await FilePicker.platform.getDirectoryPath();
     if (!mounted || selectedPath == null || selectedPath.trim().isEmpty) {
       return;
     }
 
     final normalized = selectedPath.trim();
+    projectBloc.add(ProjectFolderSelected(normalized));
+    viewerBloc.add(ViewerRecentCapturesRequested(projectPath: normalized));
+  }
+
+  void _removeProjectFolder(
+    BuildContext context,
+    String folderPath,
+    List<ProjectEntity> projects,
+    String selectedPath,
+  ) {
+    final normalizedTarget = _normalizePath(folderPath);
+    context.read<ProjectBloc>().add(ProjectFolderRemoved(folderPath));
+
+    final remaining = projects
+        .where(
+          (project) => _normalizePath(project.folderPath) != normalizedTarget,
+        )
+        .toList(growable: false);
+
+    final viewerBloc = context.read<ViewerBloc>();
+    if (selectedPath != normalizedTarget) {
+      return;
+    }
+    if (remaining.isEmpty) {
+      viewerBloc.add(const ViewerRecentCapturesCleared());
+      return;
+    }
+    viewerBloc.add(
+      ViewerRecentCapturesRequested(projectPath: remaining.first.folderPath),
+    );
+  }
+
+  Future<void> _replaceProjectFolder(
+    BuildContext context,
+    int slotIndex,
+    String currentFolderPath,
+    String selectedPath,
+  ) async {
+    final projectBloc = this.context.read<ProjectBloc>();
+    final viewerBloc = this.context.read<ViewerBloc>();
+    final selectedDirectory = await FilePicker.platform.getDirectoryPath();
+    if (!mounted ||
+        selectedDirectory == null ||
+        selectedDirectory.trim().isEmpty) {
+      return;
+    }
+
+    final normalizedNewPath = selectedDirectory.trim();
     projectBloc.add(
       ProjectFolderReplacedAt(
         slotIndex: slotIndex,
-        folderPath: normalized,
+        folderPath: normalizedNewPath,
       ),
     );
-    viewerBloc.add(ViewerRecentCapturesRequested(projectPath: normalized));
+
+    if (_normalizePath(currentFolderPath) != selectedPath) {
+      return;
+    }
+
+    viewerBloc.add(
+      ViewerRecentCapturesRequested(projectPath: normalizedNewPath),
+    );
   }
 
   void _selectProjectFolder(BuildContext context, String folderPath) {

@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:convert';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -21,6 +22,7 @@ class ViewerCompositionHelper {
     FrameState frame, {
     bool forExport = false,
     double contentZoom = 1,
+    String? hiddenElementId,
   }) {
     canvas.drawRect(
       Offset.zero & frame.canvasSize,
@@ -50,6 +52,12 @@ class ViewerCompositionHelper {
     final sorted = document.orderedElements();
 
     for (final element in sorted) {
+      if (!forExport &&
+          hiddenElementId != null &&
+          hiddenElementId.isNotEmpty &&
+          element.id == hiddenElementId) {
+        continue;
+      }
       if (element is ImageFrameComponent) {
         _drawImage(
           canvas,
@@ -286,6 +294,26 @@ class ViewerCompositionHelper {
     );
   }
 
+  /// Convierte un punto visible del canvas al espacio interno del viewport del frame.
+  static Offset canvasPointToImageFrame(
+    ImageFrameComponent image,
+    Offset canvasPoint, {
+    List<CanvasElement>? elements,
+    double imageZoom = 1,
+  }) {
+    final scale = imageZoom.clamp(0.1, 10.0);
+    final viewport = imageContentViewportRect(
+      image,
+      elements: elements,
+      imageZoom: scale,
+    );
+    final logicalViewport = image.contentViewportRect;
+    return Offset(
+      logicalViewport.left + ((canvasPoint.dx - viewport.left) / scale),
+      logicalViewport.top + ((canvasPoint.dy - viewport.top) / scale),
+    );
+  }
+
   /// Convierte un punto del espacio interno de la imagen al canvas visible.
   static Offset imageContentPointToCanvas(
     ImageFrameComponent image,
@@ -305,12 +333,88 @@ class ViewerCompositionHelper {
     );
   }
 
+  /// Convierte un punto del viewport logico del frame al canvas visible.
+  static Offset imageFramePointToCanvas(
+    ImageFrameComponent image,
+    Offset framePoint, {
+    List<CanvasElement>? elements,
+    double imageZoom = 1,
+  }) {
+    final scale = imageZoom.clamp(0.1, 10.0);
+    final viewport = imageContentViewportRect(
+      image,
+      elements: elements,
+      imageZoom: scale,
+    );
+    final logicalViewport = image.contentViewportRect;
+    final localOffset = framePoint - logicalViewport.topLeft;
+    return Offset(
+      viewport.left + (localOffset.dx * scale),
+      viewport.top + (localOffset.dy * scale),
+    );
+  }
+
   /// Proyecta una anotación al canvas visible respetando su espacio geométrico.
   static AnnotationElement projectAnnotation(
     List<CanvasElement> elements,
     AnnotationElement element, {
     double imageZoom = 1,
   }) {
+    if (element.type == AnnotationType.richTextPanel &&
+        element.coordinateSpace == AnnotationCoordinateSpace.workspace) {
+      final baseRect = element.endPosition == null
+          ? Rect.fromLTWH(element.position.dx, element.position.dy, 360, 220)
+          : _normalizedRect(element.position, element.endPosition!);
+      final scale = imageZoom.clamp(0.1, 10.0);
+      final scaledRect = Rect.fromLTWH(
+        baseRect.left,
+        baseRect.top,
+        baseRect.width * scale,
+        baseRect.height * scale,
+      );
+      return element.copyWith(
+        position: scaledRect.topLeft,
+        endPosition: scaledRect.bottomRight,
+      );
+    }
+
+    if (element.coordinateSpace == AnnotationCoordinateSpace.imageFrame) {
+      final attachedImage = findAttachedImage(elements, element);
+      if (attachedImage == null) {
+        return element.copyWith(
+          coordinateSpace: AnnotationCoordinateSpace.workspace,
+        );
+      }
+
+      return element.copyWith(
+        position: imageFramePointToCanvas(
+          attachedImage,
+          element.position,
+          elements: elements,
+          imageZoom: imageZoom,
+        ),
+        endPosition: element.endPosition == null
+            ? null
+            : imageFramePointToCanvas(
+                attachedImage,
+                element.endPosition!,
+                elements: elements,
+                imageZoom: imageZoom,
+              ),
+        points: element.points
+            .map(
+              (point) => imageFramePointToCanvas(
+                attachedImage,
+                point,
+                elements: elements,
+                imageZoom: imageZoom,
+              ),
+            )
+            .toList(growable: false),
+        coordinateSpace: AnnotationCoordinateSpace.workspace,
+      );
+    }
+
     if (element.coordinateSpace != AnnotationCoordinateSpace.imageContent) {
       return element;
     }
@@ -351,6 +455,29 @@ class ViewerCompositionHelper {
     );
   }
 
+  /// Rectangulo visible del panel enriquecido.
+  ///
+  /// Para paneles del workspace el zoom afecta el tamano visible del cuadro
+  /// sin alterar su top-left logico. Para paneles adjuntos a una imagen,
+  /// la proyeccion de `projectAnnotation` ya incorpora la escala correcta.
+  static Rect richTextPanelRect(
+    AnnotationElement element, {
+    List<CanvasElement>? elements,
+    double imageZoom = 1,
+  }) {
+    final projected = elements == null
+        ? element
+        : projectAnnotation(
+            elements,
+            element,
+            imageZoom: imageZoom,
+          );
+    final baseRect = projected.endPosition == null
+        ? Rect.fromLTWH(projected.position.dx, projected.position.dy, 360, 220)
+        : _normalizedRect(projected.position, projected.endPosition!);
+    return baseRect;
+  }
+
   /// Returns the visual bounds of an annotation.
   static Rect annotationBounds(
     AnnotationElement element, {
@@ -386,6 +513,15 @@ class ViewerCompositionHelper {
       return projected.type == AnnotationType.commentBubble
           ? base.inflate(8)
           : base.inflate(4);
+    }
+
+    if (projected.type == AnnotationType.richTextPanel) {
+      final rect = richTextPanelRect(
+        element,
+        elements: elements,
+        imageZoom: imageZoom,
+      );
+      return rect.inflate(4);
     }
 
     if (projected.type == AnnotationType.pencil &&
@@ -572,6 +708,13 @@ class ViewerCompositionHelper {
         }
       case AnnotationType.text:
         _drawText(canvas, projected);
+      case AnnotationType.richTextPanel:
+        _drawRichTextPanel(
+          canvas,
+          source: element,
+          projected: projected,
+          imageZoom: imageZoom,
+        );
       case AnnotationType.commentBubble:
         _drawCommentBubble(canvas, projected);
       case AnnotationType.blur:
@@ -702,6 +845,97 @@ class ViewerCompositionHelper {
     );
   }
 
+  static void _drawRichTextPanel(
+    ui.Canvas canvas, {
+    required AnnotationElement source,
+    required AnnotationElement projected,
+    required double imageZoom,
+  }) {
+    final rect = projected.endPosition == null
+        ? Rect.fromLTWH(projected.position.dx, projected.position.dy, 360, 220)
+        : _normalizedRect(projected.position, projected.endPosition!);
+    final logicalRect = source.endPosition == null
+        ? Rect.fromLTWH(source.position.dx, source.position.dy, 360, 220)
+        : _normalizedRect(source.position, source.endPosition!);
+    final panelScale = logicalRect.width <= 0.001
+        ? 1.0
+        : (rect.width / logicalRect.width).clamp(0.25, 4.0);
+    final borderRadius = (18 * panelScale).clamp(8, 24).toDouble();
+    final panelPadding = EdgeInsets.fromLTRB(
+      (18 * panelScale).clamp(8, 30).toDouble(),
+      (16 * panelScale).clamp(8, 24).toDouble(),
+      (18 * panelScale).clamp(8, 30).toDouble(),
+      (18 * panelScale).clamp(8, 30).toDouble(),
+    );
+    final panelColor = Color(projected.backgroundColor);
+    final rrect = RRect.fromRectAndRadius(
+      rect,
+      Radius.circular(borderRadius),
+    );
+
+    if (projected.hasShadow && panelColor.alpha > 0) {
+      canvas.drawRRect(
+        rrect.shift(Offset(0, (10 * panelScale).clamp(5, 12).toDouble())),
+        Paint()..color = Colors.black.withValues(alpha: 0.18),
+      );
+    }
+
+    if (panelColor.alpha > 0) {
+      canvas.drawRRect(
+        rrect,
+        Paint()..color = panelColor,
+      );
+    }
+
+    final borderWidth =
+        (projected.panelBorderWidth * panelScale).clamp(0, 8).toDouble();
+    if (borderWidth > 0) {
+      canvas.drawRRect(
+        rrect,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = borderWidth
+          ..color = Color(projected.panelBorderColor),
+      );
+    }
+
+    final contentRect = Rect.fromLTWH(
+      rect.left + panelPadding.left,
+      rect.top + panelPadding.top,
+      math.max(24, rect.width - panelPadding.horizontal),
+      math.max(24, rect.height - panelPadding.vertical),
+    );
+
+    canvas
+      ..save()
+      ..clipRRect(
+        RRect.fromRectAndRadius(
+          contentRect.inflate(6),
+          Radius.circular((14 * panelScale).clamp(8, 18).toDouble()),
+        ),
+      );
+
+    final paragraphs = _buildRichTextParagraphs(projected, panelScale);
+    var top = contentRect.top;
+    for (final paragraph in paragraphs) {
+      if (top >= contentRect.bottom) {
+        break;
+      }
+      final textPainter = TextPainter(
+        text: TextSpan(children: paragraph.spans),
+        textDirection: TextDirection.ltr,
+        textAlign: _textAlignForPanel(paragraph.alignment),
+      )..layout(
+          minWidth: contentRect.width,
+          maxWidth: contentRect.width,
+        );
+
+      textPainter.paint(canvas, Offset(contentRect.left, top));
+      top += textPainter.height;
+    }
+    canvas.restore();
+  }
+
   static void _drawStepMarker(ui.Canvas canvas, AnnotationElement element) {
     canvas.drawCircle(
       element.position,
@@ -733,4 +967,223 @@ class ViewerCompositionHelper {
       math.max(a.dy, b.dy),
     );
   }
+
+  static TextSpan _buildRichTextDeltaSpan(
+    AnnotationElement element,
+    double panelScale,
+  ) {
+    final baseStyle = TextStyle(
+      color: Color(element.color),
+      fontSize: math.max(8, element.textSize * panelScale),
+      fontFamily: element.fontFamily,
+      fontWeight: element.isBold ? FontWeight.w700 : FontWeight.w500,
+      fontStyle: element.isItalic ? FontStyle.italic : FontStyle.normal,
+      height: 1.35,
+    );
+    final spans = <InlineSpan>[];
+    final operations = _decodeRichTextOperations(
+      element.richTextDelta,
+      fallbackText: element.text,
+    );
+
+    for (var i = 0; i < operations.length; i++) {
+      final operation = operations[i];
+      final insert = operation['insert'];
+      if (insert is! String || insert.isEmpty) {
+        continue;
+      }
+      var text = insert.replaceAll('\r\n', '\n');
+      if (i == operations.length - 1 && text.endsWith('\n')) {
+        text = text.substring(0, text.length - 1);
+      }
+      if (text.isEmpty) {
+        continue;
+      }
+
+      final attributes = operation['attributes'];
+      spans.add(
+        TextSpan(
+          text: text,
+          style: baseStyle.merge(
+            _styleFromRichTextAttributes(
+              attributes is Map<String, dynamic> ? attributes : null,
+              fallbackColor: Color(element.color),
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (spans.isEmpty) {
+      return TextSpan(text: element.text, style: baseStyle);
+    }
+    return TextSpan(style: baseStyle, children: spans);
+  }
+
+  static List<_RichTextParagraph> _buildRichTextParagraphs(
+    AnnotationElement element,
+    double panelScale,
+  ) {
+    final baseStyle = TextStyle(
+      color: Color(element.color),
+      fontSize: math.max(8, element.textSize * panelScale),
+      fontFamily: element.fontFamily,
+      fontWeight: element.isBold ? FontWeight.w700 : FontWeight.w500,
+      fontStyle: element.isItalic ? FontStyle.italic : FontStyle.normal,
+      height: 1.35,
+    );
+    final operations = _decodeRichTextOperations(
+      element.richTextDelta,
+      fallbackText: element.text,
+    );
+
+    final paragraphs = <_RichTextParagraph>[];
+    final currentSpans = <InlineSpan>[];
+
+    void pushParagraph(ViewerTextPanelAlignment alignment) {
+      paragraphs.add(
+        _RichTextParagraph(
+          alignment: alignment,
+          spans: currentSpans.isEmpty
+              ? <InlineSpan>[TextSpan(text: ' ', style: baseStyle)]
+              : List<InlineSpan>.from(currentSpans),
+        ),
+      );
+      currentSpans.clear();
+    }
+
+    for (final operation in operations) {
+      final insert = operation['insert'];
+      if (insert is! String || insert.isEmpty) {
+        continue;
+      }
+      final attributes = operation['attributes'];
+      final attributeMap = attributes is Map<String, dynamic>
+          ? attributes
+          : null;
+      final paragraphAlignment = _panelAlignmentFromDeltaAttributes(
+        attributeMap,
+      );
+      final segments = insert.replaceAll('\r\n', '\n').split('\n');
+      for (var i = 0; i < segments.length; i++) {
+        final segment = segments[i];
+        if (segment.isNotEmpty) {
+          currentSpans.add(
+            TextSpan(
+              text: segment,
+              style: baseStyle.merge(
+                _styleFromRichTextAttributes(
+                  attributeMap,
+                  fallbackColor: Color(element.color),
+                ),
+              ),
+            ),
+          );
+        }
+        final isLineBreak = i < segments.length - 1;
+        if (isLineBreak) {
+          pushParagraph(paragraphAlignment ?? element.panelAlignment);
+        }
+      }
+    }
+
+    if (currentSpans.isNotEmpty || paragraphs.isEmpty) {
+      pushParagraph(element.panelAlignment);
+    }
+
+    return paragraphs;
+  }
+
+  static List<Map<String, dynamic>> _decodeRichTextOperations(
+    String? serialized, {
+    required String fallbackText,
+  }) {
+    if (serialized != null && serialized.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(serialized);
+        if (decoded is List) {
+          return decoded
+              .whereType<Map>()
+              .map((entry) => Map<String, dynamic>.from(entry))
+              .toList(growable: false);
+        }
+      } on FormatException {
+        // Fallback below.
+      }
+    }
+
+    return <Map<String, dynamic>>[
+      <String, dynamic>{
+        'insert': fallbackText.trimRight().isEmpty
+            ? '\n'
+            : '${fallbackText.trimRight()}\n',
+      },
+    ];
+  }
+
+  static TextStyle _styleFromRichTextAttributes(
+    Map<String, dynamic>? attributes, {
+    required Color fallbackColor,
+  }) {
+    if (attributes == null || attributes.isEmpty) {
+      return const TextStyle();
+    }
+
+    return TextStyle(
+      fontWeight: attributes['bold'] == true ? FontWeight.w700 : null,
+      fontStyle: attributes['italic'] == true ? FontStyle.italic : null,
+      backgroundColor: _parseDeltaColor(attributes['background']),
+      color: _parseDeltaColor(attributes['color']) ?? fallbackColor,
+      fontFamily: attributes['font'] as String?,
+    );
+  }
+
+  static Color? _parseDeltaColor(Object? raw) {
+    if (raw is! String) {
+      return null;
+    }
+    final normalized = raw.trim().replaceFirst('#', '');
+    if (normalized.length == 6) {
+      return Color(int.parse('FF$normalized', radix: 16));
+    }
+    if (normalized.length == 8) {
+      return Color(int.parse(normalized, radix: 16));
+    }
+    return null;
+  }
+
+  static TextAlign _textAlignForPanel(ViewerTextPanelAlignment alignment) {
+    return switch (alignment) {
+      ViewerTextPanelAlignment.left => TextAlign.left,
+      ViewerTextPanelAlignment.center => TextAlign.center,
+      ViewerTextPanelAlignment.right => TextAlign.right,
+      ViewerTextPanelAlignment.justify => TextAlign.justify,
+    };
+  }
+
+  static ViewerTextPanelAlignment? _panelAlignmentFromDeltaAttributes(
+    Map<String, dynamic>? attributes,
+  ) {
+    final raw = attributes?['align'];
+    if (raw is! String) {
+      return null;
+    }
+    return switch (raw) {
+      'left' => ViewerTextPanelAlignment.left,
+      'center' => ViewerTextPanelAlignment.center,
+      'right' => ViewerTextPanelAlignment.right,
+      'justify' => ViewerTextPanelAlignment.justify,
+      _ => null,
+    };
+  }
+}
+
+class _RichTextParagraph {
+  const _RichTextParagraph({
+    required this.alignment,
+    required this.spans,
+  });
+
+  final ViewerTextPanelAlignment alignment;
+  final List<InlineSpan> spans;
 }

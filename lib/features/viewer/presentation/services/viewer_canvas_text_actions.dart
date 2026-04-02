@@ -25,6 +25,7 @@ class ViewerCanvasTextActions {
     );
     if (hit is! AnnotationElement) return;
     if (hit.type != AnnotationType.text &&
+        hit.type != AnnotationType.richTextPanel &&
         hit.type != AnnotationType.commentBubble &&
         hit.type != AnnotationType.stepMarker) {
       return;
@@ -36,11 +37,16 @@ class ViewerCanvasTextActions {
         centerImage: false,
       ),
     );
-    final updated = await ViewerTextDialog.prompt(
-      context,
-      initialValue: hit.text,
-      title: 'Editar texto',
-    );
+    if (hit.type == AnnotationType.richTextPanel) {
+      return;
+    }
+    final updated = hit.type == AnnotationType.richTextPanel
+        ? null
+        : await ViewerTextDialog.prompt(
+            context,
+            initialValue: hit.text,
+            title: 'Editar texto',
+          );
     if (!context.mounted || updated == null || updated.trim().isEmpty) return;
     context.read<ViewerBloc>().add(ViewerSelectedElementTextUpdated(updated));
   }

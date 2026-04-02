@@ -63,7 +63,7 @@ void main() {
     });
 
     test(
-      'addOrActivateFolder reemplaza la menos usada al insertar cuarta',
+      'addOrActivateFolder agrega una cuarta carpeta sin reemplazar existentes',
       () async {
         final tempDir = await Directory.systemTemp.createTemp(
           'qavision_replace_',
@@ -100,30 +100,15 @@ void main() {
           var projects = await repo.getProjects();
           expect(projects, hasLength(3));
 
-          // Subir uso de A y B; C debe quedar como menos usada.
-          final a = projects.firstWhere(
-            (p) =>
-                _normalizePathForAssert(p.folderPath) ==
-                _normalizePathForAssert(dirA.path),
-          );
-          final b = projects.firstWhere(
-            (p) =>
-                _normalizePathForAssert(p.folderPath) ==
-                _normalizePathForAssert(dirB.path),
-          );
-          await repo.markProjectUsed(a.id);
-          await repo.markProjectUsed(a.id);
-          await repo.markProjectUsed(b.id);
-
           await repo.addOrActivateFolder(dirD.path);
           projects = await repo.getProjects();
 
-          expect(projects, hasLength(3));
+          expect(projects, hasLength(4));
           final names = projects.map((p) => p.name).toSet();
           expect(names.contains('D'), isTrue);
           expect(names.contains('A'), isTrue);
           expect(names.contains('B'), isTrue);
-          expect(names.contains('C'), isFalse);
+          expect(names.contains('C'), isTrue);
         } finally {
           await storage?.dispose();
           if (tempDir.existsSync()) {
@@ -132,6 +117,51 @@ void main() {
         }
       },
     );
+
+    test('addOrActivateFolder no supera el maximo de 6 carpetas', () async {
+      final tempDir = await Directory.systemTemp.createTemp('qavision_max_');
+      StorageService? storage;
+      try {
+        storage = StorageService(
+          filePath: '${tempDir.path}${Platform.pathSeparator}config.json',
+        );
+        await storage.init();
+
+        final repo = ProjectRepository(
+          storageService: storage,
+          fileSystemService: FileSystemService(),
+        );
+
+        for (var i = 0; i < 6; i++) {
+          final dir = await Directory(
+            '${tempDir.path}${Platform.pathSeparator}P$i',
+          ).create(recursive: true);
+          await repo.addOrActivateFolder(dir.path);
+        }
+
+        final overflowDir = await Directory(
+          '${tempDir.path}${Platform.pathSeparator}Overflow',
+        ).create(recursive: true);
+        final selected = await repo.addOrActivateFolder(overflowDir.path);
+        final projects = await repo.getProjects();
+
+        expect(selected, isNull);
+        expect(projects, hasLength(6));
+        expect(
+          projects.any(
+            (project) =>
+                _normalizePathForAssert(project.folderPath) ==
+                _normalizePathForAssert(overflowDir.path),
+          ),
+          isFalse,
+        );
+      } finally {
+        await storage?.dispose();
+        if (tempDir.existsSync()) {
+          await tempDir.delete(recursive: true);
+        }
+      }
+    });
 
     test('dedupe por ruta normalizada case-insensitive', () async {
       final tempDir = await Directory.systemTemp.createTemp('qavision_dedupe_');
@@ -224,6 +254,54 @@ void main() {
         );
         expect(
           after.any(
+            (project) =>
+                _normalizePathForAssert(project.folderPath) ==
+                _normalizePathForAssert(dirB.path),
+          ),
+          isFalse,
+        );
+      } finally {
+        await storage?.dispose();
+        if (tempDir.existsSync()) {
+          await tempDir.delete(recursive: true);
+        }
+      }
+    });
+
+    test('removeFolder quita la carpeta indicada y conserva las demas', () async {
+      final tempDir = await Directory.systemTemp.createTemp('qavision_remove_');
+      StorageService? storage;
+      try {
+        final dirA = await Directory(
+          '${tempDir.path}${Platform.pathSeparator}A',
+        ).create(recursive: true);
+        final dirB = await Directory(
+          '${tempDir.path}${Platform.pathSeparator}B',
+        ).create(recursive: true);
+        final dirC = await Directory(
+          '${tempDir.path}${Platform.pathSeparator}C',
+        ).create(recursive: true);
+
+        storage = StorageService(
+          filePath: '${tempDir.path}${Platform.pathSeparator}config.json',
+        );
+        await storage.init();
+
+        final repo = ProjectRepository(
+          storageService: storage,
+          fileSystemService: FileSystemService(),
+        );
+
+        await repo.addOrActivateFolder(dirA.path);
+        await repo.addOrActivateFolder(dirB.path);
+        await repo.addOrActivateFolder(dirC.path);
+
+        await repo.removeFolder(dirB.path);
+        final projects = await repo.getProjects();
+
+        expect(projects, hasLength(2));
+        expect(
+          projects.any(
             (project) =>
                 _normalizePathForAssert(project.folderPath) ==
                 _normalizePathForAssert(dirB.path),

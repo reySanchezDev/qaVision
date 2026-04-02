@@ -20,6 +20,9 @@ enum AnnotationType {
   /// Plain text label.
   text,
 
+  /// Rich multiline text panel.
+  richTextPanel,
+
   /// Bubble callout with text.
   commentBubble,
 
@@ -36,10 +39,28 @@ enum AnnotationType {
   selection,
 }
 
+/// Alineacion disponible para bloques de texto enriquecido.
+enum ViewerTextPanelAlignment {
+  /// Left aligned text.
+  left,
+
+  /// Center aligned text.
+  center,
+
+  /// Right aligned text.
+  right,
+
+  /// Justified paragraph text.
+  justify,
+}
+
 /// Espacio geométrico donde vive una anotación.
 enum AnnotationCoordinateSpace {
   /// Coordenadas absolutas del workspace.
   workspace,
+
+  /// Coordenadas relativas al viewport interno del frame de imagen.
+  imageFrame,
 
   /// Coordenadas relativas al contenido interno de una imagen.
   imageContent,
@@ -77,8 +98,17 @@ class AnnotationElement extends CanvasElement {
     this.endPosition,
     this.points = const [],
     this.text = '',
+    this.richTextDelta,
     this.textSize = 18,
     this.opacity = 1.0,
+    this.fontFamily = 'Segoe UI',
+    this.isBold = false,
+    this.isItalic = false,
+    this.hasShadow = false,
+    this.backgroundColor = 0xF6FFFFFF,
+    this.panelBorderColor = 0x61E53935,
+    this.panelBorderWidth = 1.2,
+    this.panelAlignment = ViewerTextPanelAlignment.justify,
     this.attachedImageId,
     this.coordinateSpace = AnnotationCoordinateSpace.workspace,
   });
@@ -101,11 +131,38 @@ class AnnotationElement extends CanvasElement {
   /// Text content for text/bubble/step marker.
   final String text;
 
+  /// Serialized Quill Delta used by rich text panels.
+  final String? richTextDelta;
+
   /// Text size for text-based tools.
   final double textSize;
 
   /// Opacity used by tools like highlighter.
   final double opacity;
+
+  /// Preferred font family for text-capable elements.
+  final String fontFamily;
+
+  /// Whether text should use bold style.
+  final bool isBold;
+
+  /// Whether text should use italic style.
+  final bool isItalic;
+
+  /// Whether the text panel should render a subtle shadow.
+  final bool hasShadow;
+
+  /// Panel background color for rich text blocks.
+  final int backgroundColor;
+
+  /// Border color for rich text blocks.
+  final int panelBorderColor;
+
+  /// Border width for rich text blocks.
+  final double panelBorderWidth;
+
+  /// Paragraph alignment for rich text blocks.
+  final ViewerTextPanelAlignment panelAlignment;
 
   /// Owning image id when annotation was created on top of an image.
   final String? attachedImageId;
@@ -125,8 +182,18 @@ class AnnotationElement extends CanvasElement {
     bool clearEndPosition = false,
     List<Offset>? points,
     String? text,
+    String? richTextDelta,
+    bool clearRichTextDelta = false,
     double? textSize,
     double? opacity,
+    String? fontFamily,
+    bool? isBold,
+    bool? isItalic,
+    bool? hasShadow,
+    int? backgroundColor,
+    int? panelBorderColor,
+    double? panelBorderWidth,
+    ViewerTextPanelAlignment? panelAlignment,
     String? attachedImageId,
     bool clearAttachedImageId = false,
     AnnotationCoordinateSpace? coordinateSpace,
@@ -141,8 +208,19 @@ class AnnotationElement extends CanvasElement {
       endPosition: clearEndPosition ? null : (endPosition ?? this.endPosition),
       points: points ?? this.points,
       text: text ?? this.text,
+      richTextDelta: clearRichTextDelta
+          ? null
+          : (richTextDelta ?? this.richTextDelta),
       textSize: textSize ?? this.textSize,
       opacity: opacity ?? this.opacity,
+      fontFamily: fontFamily ?? this.fontFamily,
+      isBold: isBold ?? this.isBold,
+      isItalic: isItalic ?? this.isItalic,
+      hasShadow: hasShadow ?? this.hasShadow,
+      backgroundColor: backgroundColor ?? this.backgroundColor,
+      panelBorderColor: panelBorderColor ?? this.panelBorderColor,
+      panelBorderWidth: panelBorderWidth ?? this.panelBorderWidth,
+      panelAlignment: panelAlignment ?? this.panelAlignment,
       attachedImageId: clearAttachedImageId
           ? null
           : (attachedImageId ?? this.attachedImageId),

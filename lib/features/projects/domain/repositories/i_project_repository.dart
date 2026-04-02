@@ -11,16 +11,19 @@ abstract class IProjectRepository {
   /// Agrega/activa una carpeta como proyecto.
   ///
   /// Si la carpeta ya existe como proyecto, la activa y actualiza su uso.
-  /// Si no existe y hay 3 proyectos, reemplaza el menos usado.
+  /// Si no existe, la agrega a la lista manteniendo el orden actual.
   Future<ProjectEntity?> addOrActivateFolder(String folderPath);
 
-  /// Reemplaza o asigna una carpeta en un slot especifico (0..2).
+  /// Reemplaza o asigna una carpeta en una posicion especifica.
   ///
-  /// Mantiene un maximo de 3 proyectos y respeta el orden de slots.
+  /// Si la posicion no existe todavia, la carpeta se agrega al final.
   Future<ProjectEntity?> replaceProjectAt({
     required int slotIndex,
     required String folderPath,
   });
+
+  /// Quita una carpeta/proyecto de la lista visible.
+  Future<void> removeFolder(String folderPath);
 
   /// Reconciliar proyectos persistidos con el filesystem.
   ///

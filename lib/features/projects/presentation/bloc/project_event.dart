@@ -40,7 +40,19 @@ final class ProjectFolderSelected extends ProjectEvent {
   List<Object?> get props => [folderPath];
 }
 
-/// Evento para reemplazar una carpeta en un slot especifico (0..2).
+/// Evento para quitar una carpeta de la lista visible.
+final class ProjectFolderRemoved extends ProjectEvent {
+  /// Crea una instancia de [ProjectFolderRemoved].
+  const ProjectFolderRemoved(this.folderPath);
+
+  /// Ruta absoluta de la carpeta a quitar.
+  final String folderPath;
+
+  @override
+  List<Object?> get props => [folderPath];
+}
+
+/// Evento para reemplazar una carpeta en una posicion especifica.
 final class ProjectFolderReplacedAt extends ProjectEvent {
   /// Crea una instancia de [ProjectFolderReplacedAt].
   const ProjectFolderReplacedAt({
@@ -48,7 +60,7 @@ final class ProjectFolderReplacedAt extends ProjectEvent {
     required this.folderPath,
   });
 
-  /// Slot destino (0..2).
+  /// Posicion destino dentro de la lista visible.
   final int slotIndex;
 
   /// Ruta absoluta de la carpeta elegida.

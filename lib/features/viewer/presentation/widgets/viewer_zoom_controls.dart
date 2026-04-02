@@ -45,15 +45,14 @@ class ViewerZoomControls extends StatelessWidget {
     final isActualSize = (zoom - 1).abs() < 0.02;
     final isBelowEditableFloor = zoom < minEditableZoom - 0.02;
 
-    return Positioned(
-      right: 12,
-      bottom: 12,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: const Color(0xCC111111),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white24),
-        ),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xCC111111),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [

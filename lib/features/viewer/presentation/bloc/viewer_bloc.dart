@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' as io;
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -39,6 +40,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
        super(const ViewerState()) {
     on<ViewerStarted>(_onStarted);
     on<ViewerToolChanged>(_onToolChanged);
+    on<ViewerStepMarkerResetRequested>(_onStepMarkerResetRequested);
     on<ViewerPropertiesChanged>(_onPropertiesChanged);
     on<ViewerBackgroundColorChanged>(_onBackgroundColorChanged);
     on<ViewerCanvasResized>(_onCanvasResized);
@@ -47,6 +49,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     on<ViewerAnnotationUpdated>(_onAnnotationUpdated);
     on<ViewerAnnotationFinished>(_onAnnotationFinished);
     on<ViewerTextAdded>(_onTextAdded);
+    on<ViewerRichTextPanelAdded>(_onRichTextPanelAdded);
     on<ViewerImageAdded>(_onImageAdded);
     on<ViewerElementSelected>(_onElementSelected);
     on<ViewerElementMoved>(_onElementMoved);
@@ -59,8 +62,10 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     on<ViewerUndoRequested>(_onUndoRequested);
     on<ViewerRedoRequested>(_onRedoRequested);
     on<ViewerRecentCapturesRequested>(_onRecentCapturesRequested);
+    on<ViewerRecentCapturesCleared>(_onRecentCapturesCleared);
     on<ViewerRecentCapturesReordered>(_onRecentCapturesReordered);
     on<ViewerSelectedElementTextUpdated>(_onSelectedElementTextUpdated);
+    on<ViewerSelectedElementRichTextUpdated>(_onSelectedElementRichTextUpdated);
     on<ViewerSelectedFrameStyleChanged>(_onSelectedFrameStyleChanged);
     on<ViewerExportRequested>(_onExportRequested);
     on<ViewerCopyRequested>(_onCopyRequested);
@@ -167,6 +172,8 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       emit(
         state.copyWith(
           frame: loadedFrame,
+          canvasZoom: loadResult.canvasZoom,
+          activeStepMarkerNext: _inferNextStepMarkerNumber(loadedFrame),
           activeTool: AnnotationType.selection,
           undoStack: const [],
           redoStack: const [],
@@ -216,6 +223,17 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
           strokeWidth: event.strokeWidth ?? annotation.strokeWidth,
           textSize: event.textSize ?? annotation.textSize,
           opacity: event.opacity ?? annotation.opacity,
+          fontFamily: event.fontFamily ?? annotation.fontFamily,
+          isBold: event.isBold ?? annotation.isBold,
+          isItalic: event.isItalic ?? annotation.isItalic,
+          hasShadow: event.hasShadow ?? annotation.hasShadow,
+          backgroundColor:
+              event.panelBackgroundColor ?? annotation.backgroundColor,
+          panelBorderColor:
+              event.panelBorderColor ?? annotation.panelBorderColor,
+          panelBorderWidth:
+              event.panelBorderWidth ?? annotation.panelBorderWidth,
+          panelAlignment: event.panelAlignment ?? annotation.panelAlignment,
         );
 
         final undoStack = List<FrameState>.from(state.undoStack)
@@ -229,6 +247,21 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
             activeStrokeWidth: event.strokeWidth ?? state.activeStrokeWidth,
             activeTextSize: event.textSize ?? state.activeTextSize,
             activeOpacity: event.opacity ?? state.activeOpacity,
+            activeFontFamily: event.fontFamily ?? state.activeFontFamily,
+            activeTextBold: event.isBold ?? state.activeTextBold,
+            activeTextItalic: event.isItalic ?? state.activeTextItalic,
+            activeTextShadow: event.hasShadow ?? state.activeTextShadow,
+            activeTextPanelBackgroundColor:
+                event.panelBackgroundColor ??
+                state.activeTextPanelBackgroundColor,
+            activeTextPanelBorderColor:
+                event.panelBorderColor ?? state.activeTextPanelBorderColor,
+            activeTextPanelBorderWidth:
+                event.panelBorderWidth ?? state.activeTextPanelBorderWidth,
+            activeTextHighlightColor:
+                event.textHighlightColor ?? state.activeTextHighlightColor,
+            activeTextPanelAlignment:
+                event.panelAlignment ?? state.activeTextPanelAlignment,
             selectedElementId: selectedId,
             clearRecoveredSession: true,
           ),
@@ -244,6 +277,20 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         activeStrokeWidth: event.strokeWidth ?? state.activeStrokeWidth,
         activeTextSize: event.textSize ?? state.activeTextSize,
         activeOpacity: event.opacity ?? state.activeOpacity,
+        activeFontFamily: event.fontFamily ?? state.activeFontFamily,
+        activeTextBold: event.isBold ?? state.activeTextBold,
+        activeTextItalic: event.isItalic ?? state.activeTextItalic,
+        activeTextShadow: event.hasShadow ?? state.activeTextShadow,
+        activeTextPanelBackgroundColor:
+            event.panelBackgroundColor ?? state.activeTextPanelBackgroundColor,
+        activeTextPanelBorderColor:
+            event.panelBorderColor ?? state.activeTextPanelBorderColor,
+        activeTextPanelBorderWidth:
+            event.panelBorderWidth ?? state.activeTextPanelBorderWidth,
+        activeTextHighlightColor:
+            event.textHighlightColor ?? state.activeTextHighlightColor,
+        activeTextPanelAlignment:
+            event.panelAlignment ?? state.activeTextPanelAlignment,
       ),
     );
   }
@@ -295,6 +342,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     final tool = state.activeTool;
     if (tool == AnnotationType.selection ||
         tool == AnnotationType.text ||
+        tool == AnnotationType.richTextPanel ||
         tool == AnnotationType.commentBubble ||
         tool == AnnotationType.eraser) {
       return;
@@ -310,10 +358,6 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     );
 
     if (tool == AnnotationType.stepMarker) {
-      final counter = state.frame.elements
-          .whereType<AnnotationElement>()
-          .where((e) => e.type == AnnotationType.stepMarker)
-          .length;
       final marker = AnnotationElement(
         id: _uuid.v4(),
         type: AnnotationType.stepMarker,
@@ -327,7 +371,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
           canvasPoint: event.position,
           imageZoom: state.canvasZoom,
         ),
-        text: '${counter + 1}',
+        text: '${state.activeStepMarkerNext}',
         attachedImageId: attachedImageId,
         coordinateSpace: coordinateSpace,
         zIndex: _nextZ(state.frame.elements),
@@ -340,6 +384,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         pushUndo: true,
         undoSnapshot: state.frame,
         selectedElementId: marker.id,
+        activeStepMarkerNext: state.activeStepMarkerNext + 1,
       );
       return;
     }
@@ -467,6 +512,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     final type = state.activeTool == AnnotationType.commentBubble
         ? AnnotationType.commentBubble
         : AnnotationType.text;
+
     final annotation = AnnotationElement(
       id: _uuid.v4(),
       type: type,
@@ -481,6 +527,70 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         imageZoom: state.canvasZoom,
       ),
       text: text,
+      attachedImageId: attachedImageId,
+      coordinateSpace: coordinateSpace,
+      zIndex: _nextZ(state.frame.elements),
+    );
+
+    final elements = List<CanvasElement>.from(state.frame.elements)
+      ..add(annotation);
+    _commitFrame(
+      emit,
+      frame: state.frame.copyWith(elements: _normalizeZ(elements)),
+      pushUndo: true,
+      undoSnapshot: state.frame,
+      selectedElementId: annotation.id,
+      activeTool: AnnotationType.selection,
+    );
+  }
+
+  void _onRichTextPanelAdded(
+    ViewerRichTextPanelAdded event,
+    Emitter<ViewerState> emit,
+  ) {
+    final attachedImageId = _findTopImageIdAtPoint(
+      state.frame.elements,
+      event.position,
+      imageZoom: state.canvasZoom,
+    );
+    final coordinateSpace = attachedImageId == null || attachedImageId.isEmpty
+        ? AnnotationCoordinateSpace.workspace
+        : AnnotationCoordinateSpace.imageFrame;
+    final placementBounds = _initialRichTextPanelBounds(attachedImageId);
+    final panelRect = _initialRichTextPanelRect(
+      event.position,
+      bounds: placementBounds,
+    );
+    final annotation = AnnotationElement(
+      id: _uuid.v4(),
+      type: AnnotationType.richTextPanel,
+      color: state.activeColor,
+      strokeWidth: state.activeStrokeWidth,
+      textSize: state.activeTextSize,
+      position: _storeAnnotationPoint(
+        state.frame.elements,
+        attachedImageId: attachedImageId,
+        coordinateSpace: coordinateSpace,
+        canvasPoint: panelRect.topLeft,
+        imageZoom: state.canvasZoom,
+      ),
+      endPosition: _storeAnnotationPoint(
+        state.frame.elements,
+        attachedImageId: attachedImageId,
+        coordinateSpace: coordinateSpace,
+        canvasPoint: panelRect.bottomRight,
+        imageZoom: state.canvasZoom,
+      ),
+      text: '',
+      richTextDelta: _emptyRichTextDelta(),
+      fontFamily: state.activeFontFamily,
+      isBold: state.activeTextBold,
+      isItalic: state.activeTextItalic,
+      hasShadow: state.activeTextShadow,
+      backgroundColor: state.activeTextPanelBackgroundColor,
+      panelBorderColor: state.activeTextPanelBorderColor,
+      panelBorderWidth: state.activeTextPanelBorderWidth,
+      panelAlignment: state.activeTextPanelAlignment,
       attachedImageId: attachedImageId,
       coordinateSpace: coordinateSpace,
       zIndex: _nextZ(state.frame.elements),
@@ -728,6 +838,18 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     final height = event.size.height.clamp(8, 8000).toDouble();
 
     if (element is ImageFrameComponent) {
+      final imageDisplaySnapshot = _captureImageContentDisplaySnapshot(
+        elements,
+        imageId: element.id,
+      );
+      final subtreeSnapshot = _captureSubtreeDisplaySnapshot(
+        elements,
+        parentId: element.id,
+      );
+      final annotationSnapshot = _captureAttachedAnnotationDisplaySnapshot(
+        elements,
+        subtreeRootId: element.id,
+      );
       final movementBounds = _movementBoundsForImage(
         elements,
         element,
@@ -741,10 +863,16 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         displayScale: _displayScaleForImage(element),
       );
       elements[index] = resizedComponent;
-      _constrainImageChildren(
+      _restoreImageContentDisplaySnapshot(
+        elements,
+        imageId: element.id,
+        imageDisplaySnapshot: imageDisplaySnapshot,
+      );
+      _restoreSubtreeDisplaySnapshot(
         elements,
         parentId: element.id,
-        canvasSize: state.frame.canvasSize,
+        snapshot: subtreeSnapshot,
+        annotationSnapshot: annotationSnapshot,
       );
     } else if (element is AnnotationElement) {
       final projected = _projectAnnotationForDisplay(
@@ -752,24 +880,53 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         element,
         imageZoom: state.canvasZoom,
       );
+      final oldBounds = ViewerCompositionHelper.annotationBounds(projected);
+      final nextRect = Rect.fromLTWH(
+        event.position?.dx ?? oldBounds.left,
+        event.position?.dy ?? oldBounds.top,
+        width,
+        height,
+      );
       if (element.type == AnnotationType.text ||
           element.type == AnnotationType.commentBubble) {
-        final oldBounds = ViewerCompositionHelper.annotationBounds(
-          projected,
-        );
-        final ratio = oldBounds.width <= 1 ? 1.0 : width / oldBounds.width;
+        final ratio = oldBounds.width <= 1
+            ? 1.0
+            : nextRect.width / oldBounds.width;
         final textSize = (element.textSize * ratio).clamp(10, 120).toDouble();
-        elements[index] = element.copyWith(textSize: textSize);
+        elements[index] = _storeProjectedAnnotation(
+          elements,
+          source: element,
+          projected: projected.copyWith(
+            position: nextRect.topLeft,
+            textSize: textSize,
+          ),
+          imageZoom: state.canvasZoom,
+        );
+      } else if (element.type == AnnotationType.stepMarker) {
+        final ratio = oldBounds.width <= 1
+            ? 1.0
+            : nextRect.width / oldBounds.width;
+        final textSize = (element.textSize * ratio).clamp(12, 96).toDouble();
+        elements[index] = _storeProjectedAnnotation(
+          elements,
+          source: element,
+          projected: projected.copyWith(
+            position: nextRect.center,
+            textSize: textSize,
+          ),
+          imageZoom: state.canvasZoom,
+        );
       } else if (element.type == AnnotationType.pencil &&
           element.points.isNotEmpty) {
-        final oldBounds = ViewerCompositionHelper.annotationBounds(projected);
-        final sx = oldBounds.width <= 1 ? 1.0 : width / oldBounds.width;
-        final sy = oldBounds.height <= 1 ? 1.0 : height / oldBounds.height;
+        final sx = oldBounds.width <= 1 ? 1.0 : nextRect.width / oldBounds.width;
+        final sy = oldBounds.height <= 1
+            ? 1.0
+            : nextRect.height / oldBounds.height;
         final transformed = projected.points
             .map(
               (point) => Offset(
-                projected.position.dx + (point.dx - oldBounds.left) * sx,
-                projected.position.dy + (point.dy - oldBounds.top) * sy,
+                nextRect.left + (point.dx - oldBounds.left) * sx,
+                nextRect.top + (point.dy - oldBounds.top) * sy,
               ),
             )
             .toList(growable: false);
@@ -777,17 +934,34 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
           elements,
           source: element,
           projected: projected.copyWith(
+            position: transformed.first,
             points: transformed,
             clearEndPosition: true,
           ),
           imageZoom: state.canvasZoom,
         );
       } else {
+        Offset remapPoint(Offset point) {
+          final widthFactor = oldBounds.width <= 1
+              ? 0.0
+              : (point.dx - oldBounds.left) / oldBounds.width;
+          final heightFactor = oldBounds.height <= 1
+              ? 0.0
+              : (point.dy - oldBounds.top) / oldBounds.height;
+          return Offset(
+            nextRect.left + (nextRect.width * widthFactor),
+            nextRect.top + (nextRect.height * heightFactor),
+          );
+        }
+
         elements[index] = _storeProjectedAnnotation(
           elements,
           source: element,
           projected: projected.copyWith(
-            endPosition: projected.position + Offset(width, height),
+            position: remapPoint(projected.position),
+            endPosition: projected.endPosition == null
+                ? null
+                : remapPoint(projected.endPosition!),
           ),
           imageZoom: state.canvasZoom,
         );
@@ -937,6 +1111,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     emit(
       state.copyWith(
         frame: previous,
+        activeStepMarkerNext: _inferNextStepMarkerNumber(previous),
         undoStack: undoStack,
         redoStack: redoStack,
         clearSelectedElement: true,
@@ -955,6 +1130,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     emit(
       state.copyWith(
         frame: next,
+        activeStepMarkerNext: _inferNextStepMarkerNumber(next),
         undoStack: undoStack,
         redoStack: redoStack,
         clearSelectedElement: true,
@@ -979,6 +1155,18 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     } on Exception {
       // Keep previous list when refresh fails.
     }
+  }
+
+  void _onRecentCapturesCleared(
+    ViewerRecentCapturesCleared event,
+    Emitter<ViewerState> emit,
+  ) {
+    emit(
+      state.copyWith(
+        recentCaptures: const [],
+        clearRecentProjectPath: true,
+      ),
+    );
   }
 
   void _onRecentCapturesReordered(
@@ -1009,8 +1197,8 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     final selectedId = state.selectedElementId;
     if (selectedId == null) return;
 
-    final trimmed = event.text.trim();
-    if (trimmed.isEmpty) return;
+    final sanitized = event.text.replaceAll('\r\n', '\n');
+    if (sanitized.trim().isEmpty) return;
 
     final elements = List<CanvasElement>.from(state.frame.elements);
     final index = elements.indexWhere((e) => e.id == selectedId);
@@ -1024,7 +1212,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       return;
     }
 
-    elements[index] = element.copyWith(text: trimmed);
+    elements[index] = element.copyWith(text: sanitized);
     _commitFrame(
       emit,
       frame: state.frame.copyWith(elements: elements),
@@ -1032,6 +1220,38 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       undoSnapshot: state.frame,
       selectedElementId: selectedId,
     );
+  }
+
+  void _onSelectedElementRichTextUpdated(
+    ViewerSelectedElementRichTextUpdated event,
+    Emitter<ViewerState> emit,
+  ) {
+    final selectedId = state.selectedElementId;
+    if (selectedId == null) return;
+
+    final elements = List<CanvasElement>.from(state.frame.elements);
+    final index = elements.indexWhere((e) => e.id == selectedId);
+    if (index == -1) return;
+
+    final element = elements[index];
+    if (element is! AnnotationElement ||
+        element.type != AnnotationType.richTextPanel) {
+      return;
+    }
+
+    final sanitizedPlain = event.plainText.replaceAll('\r\n', '\n').trimRight();
+    elements[index] = element.copyWith(
+      text: sanitizedPlain,
+      richTextDelta: event.deltaJson,
+    );
+    emit(
+      state.copyWith(
+        frame: state.frame.copyWith(elements: elements),
+        selectedElementId: selectedId,
+        clearRecoveredSession: true,
+      ),
+    );
+    _scheduleAutoSave();
   }
 
   void _onSelectedFrameStyleChanged(
@@ -1161,6 +1381,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       await _documentPersistenceService.saveRecoveryDraft(
         imagePath: activeImagePath,
         frame: state.frame,
+        canvasZoom: state.canvasZoom,
       );
       _hasPendingRecoveryDraft = true;
       emit(
@@ -1196,6 +1417,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     bool isDrawing = false,
     bool? isLoading,
     AnnotationType? activeTool,
+    int? activeStepMarkerNext,
   }) {
     final undoStack = pushUndo
         ? (List<FrameState>.from(state.undoStack)
@@ -1206,6 +1428,8 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     emit(
       state.copyWith(
         frame: frame,
+        activeStepMarkerNext:
+            activeStepMarkerNext ?? state.activeStepMarkerNext,
         undoStack: undoStack,
         redoStack: redoStack,
         selectedElementId: selectedElementId,
@@ -1232,6 +1456,30 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         }
       },
     );
+  }
+
+  void _onStepMarkerResetRequested(
+    ViewerStepMarkerResetRequested event,
+    Emitter<ViewerState> emit,
+  ) {
+    emit(
+      state.copyWith(
+        activeStepMarkerNext: 1,
+        clearRecoveredSession: true,
+      ),
+    );
+  }
+
+  int _inferNextStepMarkerNumber(FrameState frame) {
+    var maxStep = 0;
+    for (final element in frame.elements.whereType<AnnotationElement>()) {
+      if (element.type != AnnotationType.stepMarker) continue;
+      final parsed = int.tryParse(element.text.trim());
+      if (parsed != null && parsed > maxStep) {
+        maxStep = parsed;
+      }
+    }
+    return maxStep + 1;
   }
 
   Future<void> _saveComposition(
@@ -1270,11 +1518,13 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       await _documentPersistenceService.saveEditableFrame(
         imagePath: activeImagePath,
         frame: savePlan.editableFrame,
+        canvasZoom: state.canvasZoom,
       );
       if (savePlan.saveAsComposite) {
         await _documentPersistenceService.saveEditableFrame(
           imagePath: savedPath,
           frame: state.frame,
+          canvasZoom: state.canvasZoom,
         );
       }
       await _documentPersistenceService.clearRecoveryDraft(
@@ -1327,9 +1577,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     required Offset canvasPoint,
     double imageZoom = 1,
   }) {
-    if (coordinateSpace != AnnotationCoordinateSpace.imageContent ||
-        attachedImageId == null ||
-        attachedImageId.isEmpty) {
+    if (attachedImageId == null || attachedImageId.isEmpty) {
       return canvasPoint;
     }
 
@@ -1338,12 +1586,25 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       return canvasPoint;
     }
 
-    return ViewerCompositionHelper.canvasPointToImageContent(
-      attachedImage,
-      canvasPoint,
-      elements: elements,
-      imageZoom: imageZoom,
-    );
+    if (coordinateSpace == AnnotationCoordinateSpace.imageFrame) {
+      return ViewerCompositionHelper.canvasPointToImageFrame(
+        attachedImage,
+        canvasPoint,
+        elements: elements,
+        imageZoom: imageZoom,
+      );
+    }
+
+    if (coordinateSpace == AnnotationCoordinateSpace.imageContent) {
+      return ViewerCompositionHelper.canvasPointToImageContent(
+        attachedImage,
+        canvasPoint,
+        elements: elements,
+        imageZoom: imageZoom,
+      );
+    }
+
+    return canvasPoint;
   }
 
   AnnotationElement _projectAnnotationForDisplay(
@@ -1364,9 +1625,30 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     required AnnotationElement projected,
     double imageZoom = 1,
   }) {
-    if (source.coordinateSpace != AnnotationCoordinateSpace.imageContent ||
-        source.attachedImageId == null ||
-        source.attachedImageId!.isEmpty) {
+    if (source.type == AnnotationType.richTextPanel &&
+        source.coordinateSpace == AnnotationCoordinateSpace.workspace) {
+      final scale = imageZoom.clamp(0.1, 10.0);
+      final projectedRect = projected.endPosition == null
+          ? Rect.fromLTWH(projected.position.dx, projected.position.dy, 360, 220)
+          : Rect.fromLTRB(
+              math.min(projected.position.dx, projected.endPosition!.dx),
+              math.min(projected.position.dy, projected.endPosition!.dy),
+              math.max(projected.position.dx, projected.endPosition!.dx),
+              math.max(projected.position.dy, projected.endPosition!.dy),
+            );
+      final logicalRect = Rect.fromLTWH(
+        projectedRect.left,
+        projectedRect.top,
+        projectedRect.width / scale,
+        projectedRect.height / scale,
+      );
+      return source.copyWith(
+        position: logicalRect.topLeft,
+        endPosition: logicalRect.bottomRight,
+      );
+    }
+
+    if (source.attachedImageId == null || source.attachedImageId!.isEmpty) {
       return projected.copyWith(
         attachedImageId: source.attachedImageId,
         coordinateSpace: source.coordinateSpace,
@@ -1381,31 +1663,68 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
       );
     }
 
-    return source.copyWith(
-      position: ViewerCompositionHelper.canvasPointToImageContent(
-        attachedImage,
-        projected.position,
-        elements: elements,
-        imageZoom: imageZoom,
-      ),
-      endPosition: projected.endPosition == null
-          ? null
-          : ViewerCompositionHelper.canvasPointToImageContent(
-              attachedImage,
-              projected.endPosition!,
-              elements: elements,
-              imageZoom: imageZoom,
-            ),
-      points: projected.points
-          .map(
-            (point) => ViewerCompositionHelper.canvasPointToImageContent(
-              attachedImage,
-              point,
-              elements: elements,
-              imageZoom: imageZoom,
-            ),
-          )
-          .toList(growable: false),
+    if (source.coordinateSpace == AnnotationCoordinateSpace.imageFrame) {
+      return source.copyWith(
+        position: ViewerCompositionHelper.canvasPointToImageFrame(
+          attachedImage,
+          projected.position,
+          elements: elements,
+          imageZoom: imageZoom,
+        ),
+        endPosition: projected.endPosition == null
+            ? null
+            : ViewerCompositionHelper.canvasPointToImageFrame(
+                attachedImage,
+                projected.endPosition!,
+                elements: elements,
+                imageZoom: imageZoom,
+              ),
+        points: projected.points
+            .map(
+              (point) => ViewerCompositionHelper.canvasPointToImageFrame(
+                attachedImage,
+                point,
+                elements: elements,
+                imageZoom: imageZoom,
+              ),
+            )
+            .toList(growable: false),
+        coordinateSpace: source.coordinateSpace,
+      );
+    }
+
+    if (source.coordinateSpace == AnnotationCoordinateSpace.imageContent) {
+      return source.copyWith(
+        position: ViewerCompositionHelper.canvasPointToImageContent(
+          attachedImage,
+          projected.position,
+          elements: elements,
+          imageZoom: imageZoom,
+        ),
+        endPosition: projected.endPosition == null
+            ? null
+            : ViewerCompositionHelper.canvasPointToImageContent(
+                attachedImage,
+                projected.endPosition!,
+                elements: elements,
+                imageZoom: imageZoom,
+              ),
+        points: projected.points
+            .map(
+              (point) => ViewerCompositionHelper.canvasPointToImageContent(
+                attachedImage,
+                point,
+                elements: elements,
+                imageZoom: imageZoom,
+              ),
+            )
+            .toList(growable: false),
+        coordinateSpace: source.coordinateSpace,
+      );
+    }
+
+    return projected.copyWith(
+      attachedImageId: source.attachedImageId,
       coordinateSpace: source.coordinateSpace,
     );
   }
@@ -1504,6 +1823,171 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     }
   }
 
+  Rect? _captureImageContentDisplaySnapshot(
+    List<CanvasElement> elements, {
+    required String imageId,
+  }) {
+    final image = _findImageById(elements, imageId);
+    if (image == null) {
+      return null;
+    }
+    return ViewerCompositionHelper.imageDrawRect(
+      image,
+      elements: elements,
+      imageZoom: state.canvasZoom,
+    );
+  }
+
+  void _restoreImageContentDisplaySnapshot(
+    List<CanvasElement> elements, {
+    required String imageId,
+    required Rect? imageDisplaySnapshot,
+  }) {
+    if (imageDisplaySnapshot == null) {
+      return;
+    }
+    final index = elements.indexWhere(
+      (candidate) => candidate is ImageFrameComponent && candidate.id == imageId,
+    );
+    if (index < 0) {
+      return;
+    }
+    final image = elements[index] as ImageFrameComponent;
+    final projectedViewport = ViewerCompositionHelper.imageContentViewportRect(
+      image,
+      elements: elements,
+      imageZoom: state.canvasZoom,
+    );
+    final scale = state.canvasZoom.clamp(0.1, 10.0);
+    final proposedOffset = Offset(
+      (imageDisplaySnapshot.left - projectedViewport.left) / scale,
+      (imageDisplaySnapshot.top - projectedViewport.top) / scale,
+    );
+    elements[index] = image.copyWith(
+      transform: image.transform.copyWith(
+        contentOffset: image.clampContentOffset(proposedOffset),
+      ),
+    );
+  }
+
+  Map<String, Rect> _captureSubtreeDisplaySnapshot(
+    List<CanvasElement> elements, {
+      required String parentId,
+  }) {
+    final snapshot = <String, Rect>{};
+    final descendantIds = _collectDescendantImageIds(elements, parentId);
+    for (final candidate in elements) {
+      if (candidate is ImageFrameComponent &&
+          descendantIds.contains(candidate.id)) {
+        snapshot[candidate.id] = ViewerCompositionHelper.imageFrameRect(
+          candidate,
+          elements: elements,
+          imageZoom: state.canvasZoom,
+        );
+      }
+    }
+    return snapshot;
+  }
+
+  void _restoreSubtreeDisplaySnapshot(
+    List<CanvasElement> elements, {
+    required String parentId,
+    required Map<String, Rect> snapshot,
+    required Map<String, AnnotationElement> annotationSnapshot,
+  }) {
+    if (snapshot.isEmpty && annotationSnapshot.isEmpty) return;
+
+    _restoreImageDescendantDisplaySnapshot(
+      elements,
+      parentId: parentId,
+      snapshot: snapshot,
+    );
+    _restoreAttachedAnnotationDisplaySnapshot(
+      elements,
+      annotationSnapshot: annotationSnapshot,
+    );
+  }
+
+  void _restoreImageDescendantDisplaySnapshot(
+    List<CanvasElement> elements, {
+    required String parentId,
+    required Map<String, Rect> snapshot,
+  }) {
+    for (var i = 0; i < elements.length; i++) {
+      final candidate = elements[i];
+      if (candidate is! ImageFrameComponent ||
+          candidate.parentImageId != parentId) {
+        continue;
+      }
+
+      final oldDisplayRect = snapshot[candidate.id];
+      if (oldDisplayRect != null) {
+        final logicalTopLeft =
+            ViewerCompositionHelper.logicalFrameTopLeftFromDisplayTopLeft(
+              displayTopLeft: oldDisplayRect.topLeft,
+              parentImageId: candidate.parentImageId,
+              elements: elements,
+              imageZoom: state.canvasZoom,
+            );
+        elements[i] = candidate.copyWith(
+          transform: candidate.transform.copyWith(
+            position: logicalTopLeft,
+          ),
+        );
+      }
+
+      _restoreImageDescendantDisplaySnapshot(
+        elements,
+        parentId: candidate.id,
+        snapshot: snapshot,
+      );
+    }
+  }
+
+  Map<String, AnnotationElement> _captureAttachedAnnotationDisplaySnapshot(
+    List<CanvasElement> elements, {
+    required String subtreeRootId,
+  }) {
+    final descendantIds = {
+      subtreeRootId,
+      ..._collectDescendantImageIds(elements, subtreeRootId),
+    };
+    final projectedById = <String, AnnotationElement>{};
+
+    for (final candidate in elements.whereType<AnnotationElement>()) {
+      final attachedId = candidate.attachedImageId;
+      if (attachedId == null || !descendantIds.contains(attachedId)) {
+        continue;
+      }
+      projectedById[candidate.id] = _projectAnnotationForDisplay(
+        elements,
+        candidate,
+        imageZoom: state.canvasZoom,
+      );
+    }
+
+    return projectedById;
+  }
+
+  void _restoreAttachedAnnotationDisplaySnapshot(
+    List<CanvasElement> elements, {
+    required Map<String, AnnotationElement> annotationSnapshot,
+  }) {
+    if (annotationSnapshot.isEmpty) return;
+    for (var i = 0; i < elements.length; i++) {
+      final candidate = elements[i];
+      if (candidate is! AnnotationElement) continue;
+      final projected = annotationSnapshot[candidate.id];
+      if (projected == null) continue;
+      elements[i] = _storeProjectedAnnotation(
+        elements,
+        source: candidate,
+        projected: projected,
+        imageZoom: state.canvasZoom,
+      );
+    }
+  }
+
   void _constrainImageChildren(
     List<CanvasElement> elements, {
     required String parentId,
@@ -1583,25 +2067,26 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
     for (final root in rootImages) {
       final index = elements.indexWhere((element) => element.id == root.id);
       if (index < 0) continue;
+      final subtreeSnapshot = _captureSubtreeDisplaySnapshot(
+        elements,
+        parentId: root.id,
+      );
+      final annotationSnapshot = _captureAttachedAnnotationDisplaySnapshot(
+        elements,
+        subtreeRootId: root.id,
+      );
       final constrained = ImageFrameComponentService.constrainToCanvas(
         component: root,
         frameSize: frame.canvasSize,
         movementBounds: _workspaceRectForCanvas(frame.canvasSize),
         displayScale: displayScale,
       );
-      final delta = constrained.position - root.position;
       elements[index] = constrained;
-      if (delta != Offset.zero) {
-        _translateImageDependents(
-          elements,
-          imageId: root.id,
-          delta: delta,
-        );
-      }
-      _constrainImageChildren(
+      _restoreSubtreeDisplaySnapshot(
         elements,
         parentId: root.id,
-        canvasSize: frame.canvasSize,
+        snapshot: subtreeSnapshot,
+        annotationSnapshot: annotationSnapshot,
       );
     }
 
@@ -1610,6 +2095,47 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
 
   Rect _workspaceRectForCanvas(Size canvasSize) {
     return ViewerWorkspaceLayout.resolve(canvasSize);
+  }
+
+  Rect _initialRichTextPanelBounds(String? attachedImageId) {
+    if (attachedImageId == null || attachedImageId.isEmpty) {
+      return _workspaceRectForCanvas(state.frame.canvasSize);
+    }
+    final parent = _findImageById(state.frame.elements, attachedImageId);
+    if (parent == null) {
+      return _workspaceRectForCanvas(state.frame.canvasSize);
+    }
+    return ViewerCompositionHelper.imageContentViewportRect(
+      parent,
+      elements: state.frame.elements,
+      imageZoom: state.canvasZoom,
+    );
+  }
+
+  Rect _initialRichTextPanelRect(
+    Offset point, {
+    required Rect bounds,
+  }) {
+    const desiredWidth = 380.0;
+    const desiredHeight = 220.0;
+    final left = point.dx
+        .clamp(bounds.left, bounds.right - desiredWidth)
+        .toDouble();
+    final top = point.dy
+        .clamp(bounds.top, bounds.bottom - desiredHeight)
+        .toDouble();
+    return Rect.fromLTWH(
+      left,
+      top,
+      desiredWidth.clamp(220.0, bounds.width),
+      desiredHeight.clamp(140.0, bounds.height),
+    );
+  }
+
+  String _emptyRichTextDelta() {
+    return jsonEncode([
+      {'insert': '\n'},
+    ]);
   }
 
   double _displayScaleForImage(ImageFrameComponent image) {
@@ -1798,6 +2324,7 @@ class ViewerBloc extends Bloc<ViewerEvent, ViewerState> {
         await _documentPersistenceService.saveRecoveryDraft(
           imagePath: activeImagePath,
           frame: state.frame,
+          canvasZoom: state.canvasZoom,
         );
       } on Exception {
         // Evitamos fallar el cierre por un problema de persistencia del draft.

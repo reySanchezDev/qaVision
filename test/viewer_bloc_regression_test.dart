@@ -37,7 +37,7 @@ Future<void> _drainQueue() async {
 }
 
 Future<void> _waitForAutoSave(ViewerBloc bloc) async {
-  for (var i = 0; i < 30; i++) {
+  for (var i = 0; i < 80; i++) {
     if (bloc.state.autoSavePath != null || bloc.state.errorMessage != null) {
       return;
     }
@@ -324,7 +324,11 @@ void main() {
               elements: [baseComponent.copyWith(path: imagePath)],
             );
 
-        await persistence.saveEditableFrame(imagePath: imagePath, frame: frame);
+        await persistence.saveEditableFrame(
+          imagePath: imagePath,
+          frame: frame,
+          canvasZoom: 1.0,
+        );
 
         bloc.add(ViewerStarted(imagePath: imagePath));
         await _drainQueue();
@@ -1138,6 +1142,287 @@ void main() {
     );
 
     test(
+      'redimensionar un frame padre desde arriba o izquierda no reacomoda '
+      'sus subimagenes',
+      () async {
+        final basePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}resize_parent_top_left_base.jpg',
+        );
+        final childPath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}resize_parent_top_left_child.jpg',
+        );
+
+        bloc.add(ViewerStarted(imagePath: basePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final root = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        bloc.add(
+          ViewerElementResized(
+            elementId: root.id,
+            size: const Size(980, 680),
+            position: const Offset(220, 140),
+          ),
+        );
+        await _drainQueue();
+
+        bloc.add(
+          ViewerImageAdded(
+            imagePath: childPath,
+            projectPath: tempDir.path,
+            position: const Offset(880, 280),
+          ),
+        );
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final rootBefore = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.parentImageId == null);
+        final childBefore = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.parentImageId == rootBefore.id);
+        final expectedAbsolutePosition = childBefore.position;
+
+        bloc.add(
+          ViewerElementResized(
+            elementId: rootBefore.id,
+            size: const Size(860, 560),
+            position: const Offset(300, 200),
+          ),
+        );
+        await _drainQueue();
+
+        final childAfter = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.id == childBefore.id);
+
+        expect(
+          childAfter.position.dx,
+          closeTo(expectedAbsolutePosition.dx, 0.001),
+        );
+        expect(
+          childAfter.position.dy,
+          closeTo(expectedAbsolutePosition.dy, 0.001),
+        );
+      },
+    );
+
+    test(
+      'redimensionar desde arriba o izquierda conserva el contenido visible '
+      'de la imagen base',
+      () async {
+        final basePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}resize_parent_base_content.jpg',
+        );
+
+        bloc.add(ViewerStarted(imagePath: basePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final root = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        final beforeDrawRect = ViewerCompositionHelper.imageDrawRect(
+          root,
+          elements: bloc.state.frame.elements,
+          imageZoom: bloc.state.canvasZoom,
+        );
+
+        bloc.add(
+          ViewerElementResized(
+            elementId: root.id,
+            size: const Size(860, 560),
+            position: const Offset(300, 200),
+          ),
+        );
+        await _drainQueue();
+
+        final rootAfter = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.id == root.id);
+        final afterDrawRect = ViewerCompositionHelper.imageDrawRect(
+          rootAfter,
+          elements: bloc.state.frame.elements,
+          imageZoom: bloc.state.canvasZoom,
+        );
+
+        expect(afterDrawRect.left, closeTo(beforeDrawRect.left, 0.001));
+        expect(afterDrawRect.top, closeTo(beforeDrawRect.top, 0.001));
+      },
+    );
+
+    test(
+      'una secuencia de resize desde arriba o izquierda no desplaza '
+      'subimagenes ni anotaciones adjuntas',
+      () async {
+        final basePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}resize_drag_sequence_base.jpg',
+        );
+        final childPath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}resize_drag_sequence_child.jpg',
+        );
+
+        bloc.add(ViewerStarted(imagePath: basePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final root = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        bloc.add(
+          ViewerElementResized(
+            elementId: root.id,
+            size: const Size(980, 680),
+            position: const Offset(160, 110),
+          ),
+        );
+        await _drainQueue();
+
+        bloc.add(
+          ViewerImageAdded(
+            imagePath: childPath,
+            projectPath: tempDir.path,
+            position: const Offset(860, 300),
+          ),
+        );
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final rootBefore = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.parentImageId == null);
+        final childBefore = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.parentImageId == rootBefore.id);
+
+        final markerPoint = rootBefore.position + const Offset(240, 120);
+        bloc.add(const ViewerToolChanged(AnnotationType.stepMarker));
+        await _drainQueue();
+        bloc.add(ViewerAnnotationStarted(markerPoint));
+        await _drainQueue();
+
+        Rect childDisplayRect() => ViewerCompositionHelper.imageFrameRect(
+          bloc.state.frame.elements
+              .whereType<ImageFrameComponent>()
+              .firstWhere((image) => image.id == childBefore.id),
+          elements: bloc.state.frame.elements,
+          imageZoom: bloc.state.canvasZoom,
+        );
+
+        Offset annotationDisplayPosition() =>
+            ViewerCompositionHelper.projectAnnotation(
+              bloc.state.frame.elements,
+              bloc.state.frame.elements
+                  .whereType<AnnotationElement>()
+                  .first,
+              imageZoom: bloc.state.canvasZoom,
+            ).position;
+
+        final expectedChildTopLeft = childDisplayRect().topLeft;
+        final expectedAnnotationPosition = annotationDisplayPosition();
+
+        const sequence = <Rect>[
+          Rect.fromLTWH(210, 150, 930, 650),
+          Rect.fromLTWH(250, 185, 890, 615),
+          Rect.fromLTWH(290, 220, 850, 580),
+        ];
+
+        for (final rect in sequence) {
+          bloc.add(
+            ViewerElementResized(
+              elementId: rootBefore.id,
+              size: rect.size,
+              position: rect.topLeft,
+            ),
+          );
+          await _drainQueue();
+        }
+
+        expect(
+          childDisplayRect().topLeft.dx,
+          closeTo(expectedChildTopLeft.dx, 0.001),
+        );
+        expect(
+          childDisplayRect().topLeft.dy,
+          closeTo(expectedChildTopLeft.dy, 0.001),
+        );
+        expect(
+          annotationDisplayPosition().dx,
+          closeTo(expectedAnnotationPosition.dx, 0.001),
+        );
+        expect(
+          annotationDisplayPosition().dy,
+          closeTo(expectedAnnotationPosition.dy, 0.001),
+        );
+      },
+    );
+
+    test(
+      'cambiar el canvas por paneles dockeados no reacomoda subimagenes',
+      () async {
+        final basePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}canvas_resize_base.jpg',
+        );
+        final childPath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}canvas_resize_child.jpg',
+        );
+
+        bloc.add(ViewerStarted(imagePath: basePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final root = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        bloc.add(
+          ViewerElementResized(
+            elementId: root.id,
+            size: const Size(980, 640),
+            position: const Offset(120, 80),
+          ),
+        );
+        await _drainQueue();
+
+        bloc.add(
+          ViewerImageAdded(
+            imagePath: childPath,
+            projectPath: tempDir.path,
+            position: const Offset(860, 260),
+          ),
+        );
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final rootBefore = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.parentImageId == null);
+        final childBefore = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.parentImageId == rootBefore.id);
+        final expectedAbsolutePosition = childBefore.position;
+
+        bloc.add(const ViewerCanvasResized(Size(1100, 720)));
+        await _drainQueue();
+
+        final childAfter = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .firstWhere((image) => image.id == childBefore.id);
+
+        expect(
+          childAfter.position.dx,
+          closeTo(expectedAbsolutePosition.dx, 0.001),
+        );
+        expect(
+          childAfter.position.dy,
+          closeTo(expectedAbsolutePosition.dy, 0.001),
+        );
+      },
+    );
+
+    test(
       'si el drop cae fuera del frame seleccionado inserta una nueva raiz',
       () async {
         final basePath = await _writeTestJpg(
@@ -1356,5 +1641,186 @@ void main() {
         expect(minY, closeTo(expectedRelativeTopLeft.dy * 2, 30));
       },
     );
+
+    test('una flecha se puede redimensionar y estirar despues de creada', () async {
+      final imagePath = await _writeTestJpg(
+        '${tempDir.path}${Platform.pathSeparator}resize_arrow.jpg',
+      );
+
+      bloc.add(ViewerStarted(imagePath: imagePath));
+      await _drainQueue();
+      await _waitForViewerIdle(bloc);
+
+      final base = bloc.state.frame.elements
+          .whereType<ImageFrameComponent>()
+          .first;
+      final start = base.position + const Offset(80, 120);
+      final end = base.position + const Offset(180, 160);
+
+      bloc.add(const ViewerToolChanged(AnnotationType.arrow));
+      await _drainQueue();
+      bloc
+        ..add(ViewerAnnotationStarted(start))
+        ..add(ViewerAnnotationUpdated(end))
+        ..add(const ViewerAnnotationFinished());
+      await _drainQueue();
+
+      final arrowBefore = bloc.state.frame.elements
+          .whereType<AnnotationElement>()
+          .firstWhere((element) => element.type == AnnotationType.arrow);
+      final projectedBefore = ViewerCompositionHelper.projectAnnotation(
+        bloc.state.frame.elements,
+        arrowBefore,
+        imageZoom: bloc.state.canvasZoom,
+      );
+      final beforeBounds = ViewerCompositionHelper.annotationBounds(
+        projectedBefore,
+      );
+
+      final targetRect = Rect.fromLTWH(
+        beforeBounds.left,
+        beforeBounds.top,
+        beforeBounds.width + 140,
+        beforeBounds.height + 90,
+      );
+      bloc.add(
+        ViewerElementResized(
+          elementId: arrowBefore.id,
+          size: targetRect.size,
+          position: targetRect.topLeft,
+        ),
+      );
+      await _drainQueue();
+
+      final arrowAfter = bloc.state.frame.elements
+          .whereType<AnnotationElement>()
+          .firstWhere((element) => element.id == arrowBefore.id);
+      final projectedAfter = ViewerCompositionHelper.projectAnnotation(
+        bloc.state.frame.elements,
+        arrowAfter,
+        imageZoom: bloc.state.canvasZoom,
+      );
+      final afterBounds = ViewerCompositionHelper.annotationBounds(
+        projectedAfter,
+      );
+
+      expect(afterBounds.width, greaterThan(beforeBounds.width + 100));
+      expect(afterBounds.height, greaterThan(beforeBounds.height + 60));
+    });
+
+    test(
+      'bloque de texto enriquecido convive con imagenes y conserva su estilo al reabrir',
+      () async {
+        final imagePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}rich_text_panel_flow.jpg',
+        );
+
+        bloc.add(ViewerStarted(imagePath: imagePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final base = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+
+        bloc.add(const ViewerToolChanged(AnnotationType.richTextPanel));
+        bloc.add(
+          const ViewerPropertiesChanged(
+            color: 0xFF1F2937,
+            textSize: 24,
+            fontFamily: 'Georgia',
+            isBold: true,
+            panelBackgroundColor: 0xF7FFF8E1,
+            panelAlignment: ViewerTextPanelAlignment.justify,
+            hasShadow: true,
+          ),
+        );
+        await _drainQueue();
+
+        bloc.add(
+          ViewerRichTextPanelAdded(base.position + const Offset(360, 90)),
+        );
+        await _drainQueue();
+
+        bloc.add(
+          const ViewerSelectedElementRichTextUpdated(
+            plainText: 'Se valido guardar y editar dentro de la pantalla.',
+            deltaJson:
+                '[{\"insert\":\"Se valido \"},{\"insert\":\"guardar\",\"attributes\":{\"bold\":true}},{\"insert\":\" y \"},{\"insert\":\"editar\",\"attributes\":{\"background\":\"#FFF59D\"}},{\"insert\":\" dentro de la pantalla.\\n\"}]',
+          ),
+        );
+        await _drainQueue();
+
+        final panel = bloc.state.frame.elements
+            .whereType<AnnotationElement>()
+            .firstWhere((element) => element.type == AnnotationType.richTextPanel);
+        expect(panel.endPosition, isNotNull);
+        expect(panel.panelAlignment, ViewerTextPanelAlignment.justify);
+        expect(panel.backgroundColor, 0xF7FFF8E1);
+        expect(panel.fontFamily, 'Georgia');
+
+        bloc.add(const ViewerToolChanged(AnnotationType.rectangle));
+        await _drainQueue();
+        final shapeStart = base.position + const Offset(30, 30);
+        final shapeEnd = base.position + const Offset(160, 120);
+        bloc
+          ..add(ViewerAnnotationStarted(shapeStart))
+          ..add(ViewerAnnotationUpdated(shapeEnd))
+          ..add(const ViewerAnnotationFinished());
+        await _drainQueue();
+
+        bloc.add(const ViewerExportRequested());
+        await _waitForAutoSave(bloc);
+
+        bloc.add(ViewerStarted(imagePath: imagePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
+
+        final reopenedPanel = bloc.state.frame.elements
+            .whereType<AnnotationElement>()
+            .firstWhere((element) => element.type == AnnotationType.richTextPanel);
+        expect(reopenedPanel.text, contains('editar'));
+        expect(reopenedPanel.fontFamily, 'Georgia');
+        expect(reopenedPanel.isBold, isTrue);
+        expect(reopenedPanel.hasShadow, isTrue);
+        expect(reopenedPanel.panelAlignment, ViewerTextPanelAlignment.justify);
+        expect(reopenedPanel.richTextDelta, contains('background'));
+      },
+    );
+
+    test('el numerador puede reiniciarse y volver a empezar desde 1', () async {
+      final imagePath = await _writeTestJpg(
+        '${tempDir.path}${Platform.pathSeparator}step_marker_reset.jpg',
+      );
+
+      bloc.add(ViewerStarted(imagePath: imagePath));
+      await _drainQueue();
+      await _waitForViewerIdle(bloc);
+
+      final base = bloc.state.frame.elements
+          .whereType<ImageFrameComponent>()
+          .first;
+
+      bloc.add(const ViewerToolChanged(AnnotationType.stepMarker));
+      await _drainQueue();
+
+      bloc.add(ViewerAnnotationStarted(base.position + const Offset(80, 80)));
+      await _drainQueue();
+      bloc.add(ViewerAnnotationStarted(base.position + const Offset(140, 140)));
+      await _drainQueue();
+
+      bloc.add(const ViewerStepMarkerResetRequested());
+      await _drainQueue();
+      bloc.add(ViewerAnnotationStarted(base.position + const Offset(220, 220)));
+      await _drainQueue();
+
+      final markers = bloc.state.frame.elements
+          .whereType<AnnotationElement>()
+          .where((element) => element.type == AnnotationType.stepMarker)
+          .toList(growable: false);
+
+      expect(markers.map((marker) => marker.text).toList(), ['1', '2', '1']);
+      expect(bloc.state.activeStepMarkerNext, 2);
+    });
   });
 }

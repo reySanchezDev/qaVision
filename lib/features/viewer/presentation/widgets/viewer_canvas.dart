@@ -26,11 +26,19 @@ class ViewerCanvas extends StatefulWidget {
   /// Creates [ViewerCanvas].
   const ViewerCanvas({
     this.contentZoom = 1,
+    this.onRichTextPanelEditRequested,
+    this.hiddenElementId,
     super.key,
   });
 
   /// Visual zoom applied to frame content only.
   final double contentZoom;
+
+  /// Requests inline editing for a rich text panel.
+  final ValueChanged<String>? onRichTextPanelEditRequested;
+
+  /// Elemento que no debe pintarse porque se esta editando inline.
+  final String? hiddenElementId;
 
   @override
   State<ViewerCanvas> createState() => _ViewerCanvasState();
@@ -40,7 +48,6 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
   _DragMode _dragMode = _DragMode.none;
   String? _dragElementId;
   Offset _dragAnchor = Offset.zero;
-  Size _elementResizeStartSize = Size.zero;
   Offset _elementResizeStartPointer = Offset.zero;
   Rect _elementResizeStartRect = Rect.zero;
   ViewerImageResizeHandle _imageResizeHandle = ViewerImageResizeHandle.none;
@@ -59,10 +66,27 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
             unawaited(_onTapDown(context, details));
           },
           onDoubleTapDown: (details) {
+            final state = context.read<ViewerBloc>().state;
+            final hit = ViewerCanvasInteractionService.hitTest(
+              state.frame,
+              details.localPosition,
+              zoom: widget.contentZoom,
+            );
+            if (hit is AnnotationElement &&
+                hit.type == AnnotationType.richTextPanel) {
+              context.read<ViewerBloc>().add(
+                ViewerElementSelected(
+                  elementId: hit.id,
+                  centerImage: false,
+                ),
+              );
+              widget.onRichTextPanelEditRequested?.call(hit.id);
+              return;
+            }
             unawaited(
               ViewerCanvasTextActions.handleDoubleTapDown(
                 context: context,
-                state: context.read<ViewerBloc>().state,
+                state: state,
                 details: details,
                 contentZoom: widget.contentZoom,
               ),
@@ -79,6 +103,7 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
                 frame: state.frame,
                 selectedElementId: state.selectedElementId,
                 contentZoom: widget.contentZoom,
+                hiddenElementId: widget.hiddenElementId,
               ),
             ),
           ),
@@ -126,6 +151,11 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
       return;
     }
 
+    if (state.activeTool == AnnotationType.richTextPanel) {
+      bloc.add(ViewerRichTextPanelAdded(point));
+      return;
+    }
+
     if (state.activeTool == AnnotationType.text ||
         state.activeTool == AnnotationType.commentBubble) {
       final text = await ViewerTextDialog.prompt(context);
@@ -135,6 +165,20 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
     }
 
     if (state.activeTool == AnnotationType.stepMarker) {
+      final hit = ViewerCanvasInteractionService.hitTest(
+        state.frame,
+        point,
+        zoom: widget.contentZoom,
+      );
+      if (hit is AnnotationElement && hit.type == AnnotationType.stepMarker) {
+        bloc.add(
+          ViewerElementSelected(
+            elementId: hit.id,
+            centerImage: false,
+          ),
+        );
+        return;
+      }
       bloc.add(ViewerAnnotationStarted(point));
     }
   }
@@ -176,17 +220,25 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
         if (ViewerCanvasInteractionService.isOnResizeHandle(
           topHit,
           displayPoint,
+          elements: state.frame.elements,
+          zoom: widget.contentZoom,
         )) {
+          final handle = ViewerCanvasInteractionService.hitTestElementResizeHandle(
+            element: topHit,
+            logicalPoint: displayPoint,
+            elements: state.frame.elements,
+            zoom: widget.contentZoom,
+          );
           _dragMode = _DragMode.resizeElement;
           _dragElementId = topHit.id;
           _elementResizeStartPointer = displayPoint;
-          _elementResizeStartSize =
-              ViewerCanvasInteractionService.selectionBounds(
+          _elementResizeStartRect =
+              ViewerCanvasInteractionService.genericResizeBounds(
                 topHit,
                 elements: state.frame.elements,
                 zoom: widget.contentZoom,
-              ).size;
-          _imageResizeHandle = ViewerImageResizeHandle.none;
+              );
+          _imageResizeHandle = handle ?? ViewerImageResizeHandle.bottomRight;
           bloc.add(const ViewerInteractionStarted());
           return;
         }
@@ -213,7 +265,6 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
           _dragElementId = selectedImage.id;
           _imageResizeHandle = selectedImageHandle;
           _elementResizeStartPointer = displayPoint;
-          _elementResizeStartSize = selectedImage.size;
           _elementResizeStartRect = ViewerCompositionHelper.imageFrameRect(
             selectedImage,
             elements: state.frame.elements,
@@ -260,7 +311,6 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
         _dragElementId = topImageResizeHit.element.id;
         _imageResizeHandle = topImageResizeHit.handle;
         _elementResizeStartPointer = displayPoint;
-        _elementResizeStartSize = topImageResizeHit.element.size;
         _elementResizeStartRect = ViewerCompositionHelper.imageFrameRect(
           topImageResizeHit.element,
           elements: state.frame.elements,
@@ -317,7 +367,6 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
           _dragElementId = hit.id;
           _imageResizeHandle = handle;
           _elementResizeStartPointer = displayPoint;
-          _elementResizeStartSize = hit.size;
           _elementResizeStartRect = ViewerCompositionHelper.imageFrameRect(
             hit,
             elements: state.frame.elements,
@@ -347,16 +396,22 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
         elements: state.frame.elements,
         zoom: widget.contentZoom,
       )) {
+        final handle = ViewerCanvasInteractionService.hitTestElementResizeHandle(
+          element: hit,
+          logicalPoint: displayPoint,
+          elements: state.frame.elements,
+          zoom: widget.contentZoom,
+        );
         _dragMode = _DragMode.resizeElement;
         _dragElementId = hit.id;
         _elementResizeStartPointer = displayPoint;
-        _elementResizeStartSize =
-            ViewerCanvasInteractionService.selectionBounds(
+        _elementResizeStartRect =
+            ViewerCanvasInteractionService.genericResizeBounds(
               hit,
               elements: state.frame.elements,
               zoom: widget.contentZoom,
-            ).size;
-        _imageResizeHandle = ViewerImageResizeHandle.none;
+            );
+        _imageResizeHandle = handle ?? ViewerImageResizeHandle.bottomRight;
         bloc.add(const ViewerInteractionStarted());
         return;
       }
@@ -377,9 +432,36 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
     }
 
     if (state.activeTool == AnnotationType.text ||
+        state.activeTool == AnnotationType.richTextPanel ||
         state.activeTool == AnnotationType.commentBubble ||
-        state.activeTool == AnnotationType.eraser ||
-        state.activeTool == AnnotationType.stepMarker) {
+        state.activeTool == AnnotationType.eraser) {
+      return;
+    }
+
+    if (state.activeTool == AnnotationType.stepMarker) {
+      final hit = ViewerCanvasInteractionService.hitTest(
+        state.frame,
+        displayPoint,
+        zoom: widget.contentZoom,
+      );
+      if (hit is AnnotationElement && hit.type == AnnotationType.stepMarker) {
+        final projected = ViewerCompositionHelper.projectAnnotation(
+          state.frame.elements,
+          hit,
+          imageZoom: widget.contentZoom,
+        );
+        bloc.add(
+          ViewerElementSelected(
+            elementId: hit.id,
+            centerImage: false,
+          ),
+        );
+        _dragMode = _DragMode.moveElement;
+        _dragElementId = hit.id;
+        _imageResizeHandle = ViewerImageResizeHandle.none;
+        _dragAnchor = displayPoint - projected.position;
+        bloc.add(const ViewerInteractionStarted());
+      }
       return;
     }
 
@@ -460,14 +542,20 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
           return;
         }
 
-        final newSize = ViewerCanvasInteractionService.computeGenericResizeSize(
-          startSize: _elementResizeStartSize,
-          delta: delta,
-        );
+        final resizedDisplayRect =
+            ViewerCanvasInteractionService.computeResizedRect(
+              startRect: _elementResizeStartRect,
+              delta: delta,
+              handle: _imageResizeHandle == ViewerImageResizeHandle.none
+                  ? ViewerImageResizeHandle.bottomRight
+                  : _imageResizeHandle,
+              frameSize: state.frame.canvasSize,
+            );
         bloc.add(
           ViewerElementResized(
             elementId: id,
-            size: newSize,
+            size: resizedDisplayRect.size,
+            position: resizedDisplayRect.topLeft,
           ),
         );
       }
@@ -492,7 +580,6 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
     _dragMode = _DragMode.none;
     _dragElementId = null;
     _dragAnchor = Offset.zero;
-    _elementResizeStartSize = Size.zero;
     _elementResizeStartPointer = Offset.zero;
     _imageResizeHandle = ViewerImageResizeHandle.none;
     _elementResizeStartRect = Rect.zero;

@@ -86,26 +86,91 @@ class ViewerCanvasInteractionService {
     List<CanvasElement>? elements,
     double zoom = 1,
   }) {
+    final handle = hitTestElementResizeHandle(
+      element: element,
+      logicalPoint: point,
+      elements: elements,
+      zoom: zoom,
+    );
+    return handle != null && handle != ViewerImageResizeHandle.none;
+  }
+
+  /// Detecta el handle de resize para cualquier elemento seleccionable.
+  static ViewerImageResizeHandle? hitTestElementResizeHandle({
+    required CanvasElement element,
+    required Offset logicalPoint,
+    List<CanvasElement>? elements,
+    double zoom = 1,
+  }) {
     if (element is ImageFrameComponent) {
-      final handle = hitTestFrameResizeHandles(
-        logicalPoint: point,
+      return hitTestFrameResizeHandles(
+        logicalPoint: logicalPoint,
         element: element,
         elements: elements,
         zoom: zoom,
       );
-      return handle != null && handle != ViewerImageResizeHandle.none;
     }
-    final bounds = ViewerCompositionHelper.elementBounds(
+
+    final bounds = selectionBounds(
       element,
       elements: elements,
-      imageZoom: zoom,
+      zoom: zoom,
     );
-    final handle = Rect.fromCenter(
-      center: bounds.bottomRight,
-      width: 24,
-      height: 24,
+    const edge = _imageResizeEdgeHitSlop;
+    const corner = _imageResizeCornerHitSlop;
+
+    final nearLeft = (logicalPoint.dx - bounds.left).abs() <= edge;
+    final nearRight = (logicalPoint.dx - bounds.right).abs() <= edge;
+    final nearTop = (logicalPoint.dy - bounds.top).abs() <= edge;
+    final nearBottom = (logicalPoint.dy - bounds.bottom).abs() <= edge;
+
+    final nearTopLeft =
+        nearLeft &&
+        nearTop &&
+        (logicalPoint - bounds.topLeft).distance <= corner;
+    final nearTopRight =
+        nearRight &&
+        nearTop &&
+        (logicalPoint - bounds.topRight).distance <= corner;
+    final nearBottomLeft =
+        nearLeft &&
+        nearBottom &&
+        (logicalPoint - bounds.bottomLeft).distance <= corner;
+    final nearBottomRight =
+        nearRight &&
+        nearBottom &&
+        (logicalPoint - bounds.bottomRight).distance <= corner;
+
+    if (nearTopLeft) return ViewerImageResizeHandle.topLeft;
+    if (nearTopRight) return ViewerImageResizeHandle.topRight;
+    if (nearBottomLeft) return ViewerImageResizeHandle.bottomLeft;
+    if (nearBottomRight) return ViewerImageResizeHandle.bottomRight;
+
+    final inVerticalRange =
+        logicalPoint.dy >= bounds.top - edge &&
+        logicalPoint.dy <= bounds.bottom + edge;
+    final inHorizontalRange =
+        logicalPoint.dx >= bounds.left - edge &&
+        logicalPoint.dx <= bounds.right + edge;
+
+    if (nearLeft && inVerticalRange) return ViewerImageResizeHandle.left;
+    if (nearRight && inVerticalRange) return ViewerImageResizeHandle.right;
+    if (nearTop && inHorizontalRange) return ViewerImageResizeHandle.top;
+    if (nearBottom && inHorizontalRange) return ViewerImageResizeHandle.bottom;
+    return ViewerImageResizeHandle.none;
+  }
+
+  /// Bounds visibles usados para resize de elementos genericos.
+  static Rect genericResizeBounds(
+    CanvasElement element, {
+    List<CanvasElement>? elements,
+    double zoom = 1,
+  }) {
+    return selectionBounds(
+      element,
+      elements: elements,
+      zoom: zoom,
     );
-    return handle.contains(point);
   }
 
   /// Detects which image resize handle is under [logicalPoint].

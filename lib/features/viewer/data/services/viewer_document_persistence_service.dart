@@ -45,6 +45,7 @@ class ViewerDocumentLoadResult {
   const ViewerDocumentLoadResult({
     required this.frame,
     required this.recoveredFromDraft,
+    required this.canvasZoom,
   });
 
   /// Frame final listo para el visor.
@@ -52,6 +53,9 @@ class ViewerDocumentLoadResult {
 
   /// `true` si el frame provino de un borrador de recuperación.
   final bool recoveredFromDraft;
+
+  /// Zoom visual persistido del documento.
+  final double canvasZoom;
 }
 
 /// Servicio responsable de cargar y persistir documentos editables del visor.
@@ -110,18 +114,21 @@ class ViewerDocumentPersistenceService {
       return ViewerDocumentLoadResult(
         frame: draftFrame,
         recoveredFromDraft: true,
+        canvasZoom: _readCanvasZoomFromFile(draftFile) ?? 1.0,
       );
     }
     if (sidecarFrame != null) {
       return ViewerDocumentLoadResult(
         frame: sidecarFrame,
         recoveredFromDraft: false,
+        canvasZoom: _readCanvasZoomFromFile(sidecarFile) ?? 1.0,
       );
     }
 
     return ViewerDocumentLoadResult(
       frame: await buildDefaultFrame(imagePath, defaults: defaults),
       recoveredFromDraft: false,
+      canvasZoom: 1.0,
     );
   }
 
@@ -162,12 +169,14 @@ class ViewerDocumentPersistenceService {
   Future<void> saveEditableFrame({
     required String imagePath,
     required FrameState frame,
+    required double canvasZoom,
   }) async {
     await _writeFrameDocument(
       filePath: sidecarPathForImage(imagePath),
       frame: frame,
       documentKind: 'viewer_editable_document',
       sourceImagePath: imagePath,
+      canvasZoom: canvasZoom,
     );
   }
 
@@ -175,12 +184,14 @@ class ViewerDocumentPersistenceService {
   Future<void> saveRecoveryDraft({
     required String imagePath,
     required FrameState frame,
+    required double canvasZoom,
   }) async {
     await _writeFrameDocument(
       filePath: recoveryDraftPathForImage(imagePath),
       frame: frame,
       documentKind: 'viewer_recovery_draft',
       sourceImagePath: imagePath,
+      canvasZoom: canvasZoom,
     );
   }
 
@@ -300,7 +311,6 @@ class ViewerDocumentPersistenceService {
     required String fallbackImagePath,
     required ViewerImageFrameDefaults defaults,
   }) async {
-    final payloadVersion = (json['version'] as num?)?.toInt() ?? 1;
     final canvasRaw = json['canvasSize'];
     final canvasSize = canvasRaw is Map<String, dynamic>
         ? Size(
@@ -415,6 +425,11 @@ class ViewerDocumentPersistenceService {
         (value) => value.name == coordinateSpaceName,
         orElse: () => AnnotationCoordinateSpace.workspace,
       );
+      final panelAlignmentName = (raw['panelAlignment'] as String?)?.trim() ?? '';
+      final panelAlignment = ViewerTextPanelAlignment.values.firstWhere(
+        (value) => value.name == panelAlignmentName,
+        orElse: () => ViewerTextPanelAlignment.justify,
+      );
       parsedElements.add(
         AnnotationElement(
           id: id,
@@ -424,6 +439,23 @@ class ViewerDocumentPersistenceService {
           textSize: (raw['textSize'] as num?)?.toDouble() ?? 20,
           opacity: (raw['opacity'] as num?)?.toDouble() ?? 1,
           text: (raw['text'] as String?) ?? '',
+          richTextDelta: (raw['richTextDelta'] as String?)?.trim().isNotEmpty ==
+                  true
+              ? (raw['richTextDelta'] as String)
+              : null,
+          fontFamily: (raw['fontFamily'] as String?)?.trim().isNotEmpty == true
+              ? (raw['fontFamily'] as String).trim()
+              : 'Segoe UI',
+          isBold: (raw['isBold'] as bool?) ?? false,
+          isItalic: (raw['isItalic'] as bool?) ?? false,
+          hasShadow: (raw['hasShadow'] as bool?) ?? false,
+          backgroundColor: (raw['backgroundColor'] as int?) ?? 0xF6FFFFFF,
+          panelBorderColor:
+              (raw['panelBorderColor'] as int?) ??
+              ((raw['color'] as int?) ?? 0x61E53935),
+          panelBorderWidth:
+              (raw['panelBorderWidth'] as num?)?.toDouble() ?? 1.2,
+          panelAlignment: panelAlignment,
           position: Offset(x, y),
           endPosition: (endX != null && endY != null)
               ? Offset(endX, endY)
@@ -447,9 +479,7 @@ class ViewerDocumentPersistenceService {
       backgroundColor: backgroundColor,
       elements: _normalizeZ(parsedElements),
     );
-    return payloadVersion >= 2
-        ? frame
-        : _migrateLegacyAnnotationSpaces(frame);
+    return _migrateLegacyAnnotationSpaces(frame);
   }
 
   Future<io.File> _resolveSidecarFile(String imagePath) async {
@@ -505,6 +535,7 @@ class ViewerDocumentPersistenceService {
     required FrameState frame,
     required String documentKind,
     required String sourceImagePath,
+    required double canvasZoom,
   }) async {
     final file = io.File(filePath);
     final elements = <Map<String, dynamic>>[];
@@ -543,6 +574,15 @@ class ViewerDocumentPersistenceService {
           'textSize': element.textSize,
           'opacity': element.opacity,
           'text': element.text,
+          'richTextDelta': element.richTextDelta,
+          'fontFamily': element.fontFamily,
+          'isBold': element.isBold,
+          'isItalic': element.isItalic,
+          'hasShadow': element.hasShadow,
+          'backgroundColor': element.backgroundColor,
+          'panelBorderColor': element.panelBorderColor,
+          'panelBorderWidth': element.panelBorderWidth,
+          'panelAlignment': element.panelAlignment.name,
           'attachedImageId': element.attachedImageId,
           'coordinateSpace': element.coordinateSpace.name,
           'x': element.position.dx,
@@ -558,9 +598,10 @@ class ViewerDocumentPersistenceService {
     }
 
     final payload = <String, dynamic>{
-      'version': 3,
+      'version': 5,
       'documentKind': documentKind,
       'sourceImagePath': sourceImagePath,
+      'canvasZoom': canvasZoom,
       'savedAtUtc': DateTime.now().toUtc().toIso8601String(),
       'canvasSize': <String, dynamic>{
         'width': frame.canvasSize.width,
@@ -572,6 +613,25 @@ class ViewerDocumentPersistenceService {
 
     await file.parent.create(recursive: true);
     await file.writeAsString(jsonEncode(payload), flush: true);
+  }
+
+  double? _readCanvasZoomFromFile(io.File file) {
+    if (!file.existsSync()) {
+      return null;
+    }
+    try {
+      final decoded = jsonDecode(file.readAsStringSync());
+      if (decoded is! Map<String, dynamic>) {
+        return null;
+      }
+      final zoom = (decoded['canvasZoom'] as num?)?.toDouble();
+      if (zoom == null || !zoom.isFinite || zoom <= 0) {
+        return null;
+      }
+      return zoom;
+    } on Exception {
+      return null;
+    }
   }
 
   Future<FrameState> _buildEditableFrameForSingleOutput({
@@ -646,15 +706,55 @@ class ViewerDocumentPersistenceService {
       if (element.attachedImageId == null || element.attachedImageId!.isEmpty) {
         return element;
       }
-      if (element.coordinateSpace == AnnotationCoordinateSpace.imageContent) {
-        return element;
-      }
 
       final attachedImage = _findImageById(
         frame.elements,
         element.attachedImageId!,
       );
       if (attachedImage == null) {
+        return element;
+      }
+
+      if (element.type == AnnotationType.richTextPanel) {
+        if (element.coordinateSpace == AnnotationCoordinateSpace.imageFrame) {
+          return element;
+        }
+
+        Offset toImageFrame(Offset point) {
+          if (element.coordinateSpace ==
+              AnnotationCoordinateSpace.imageContent) {
+            final canvasPoint = ViewerCompositionHelper.imageContentPointToCanvas(
+              attachedImage,
+              point,
+              elements: frame.elements,
+            );
+            return ViewerCompositionHelper.canvasPointToImageFrame(
+              attachedImage,
+              canvasPoint,
+              elements: frame.elements,
+            );
+          }
+          return ViewerCompositionHelper.canvasPointToImageFrame(
+            attachedImage,
+            point,
+            elements: frame.elements,
+          );
+        }
+
+        return element.copyWith(
+          position: toImageFrame(element.position),
+          endPosition: element.endPosition == null
+              ? null
+              : toImageFrame(element.endPosition!),
+          points: element.points
+              .map(toImageFrame)
+              .toList(growable: false),
+          coordinateSpace: AnnotationCoordinateSpace.imageFrame,
+        );
+      }
+
+      if (element.coordinateSpace == AnnotationCoordinateSpace.imageContent ||
+          element.coordinateSpace == AnnotationCoordinateSpace.imageFrame) {
         return element;
       }
 

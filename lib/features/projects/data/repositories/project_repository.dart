@@ -19,7 +19,7 @@ class ProjectRepository implements IProjectRepository {
        _fileSystem = fileSystemService;
 
   static const String _projectsKey = 'projects';
-  static const int _maxProjects = 3;
+  static const int _maxProjects = 6;
   static const List<int> _colorPalette = <int>[
     0xFF1E88E5,
     0xFF43A047,
@@ -45,7 +45,6 @@ class ProjectRepository implements IProjectRepository {
     var projects = _hydrateProjects(rawMaps, legacyRootFolder: null);
     projects = await _filterExistingFolders(projects);
     projects = _dedupeByPath(projects);
-    projects = _limitToThree(projects);
     projects = _normalizeDefaultFlags(projects);
     projects = _ensureDistinctColors(projects);
 
@@ -92,6 +91,10 @@ class ProjectRepository implements IProjectRepository {
       return normalized.firstWhere((project) => project.id == current.id);
     }
 
+    if (projects.length >= _maxProjects) {
+      return null;
+    }
+
     final next = _buildProjectFromFolder(
       folderPath: normalizedTarget,
       color: _nextAvailableColor(projects),
@@ -99,13 +102,7 @@ class ProjectRepository implements IProjectRepository {
       isDefault: true,
     );
 
-    final updated = List<ProjectEntity>.from(projects);
-    if (updated.length < _maxProjects) {
-      updated.add(next);
-    } else {
-      final replaceIndex = _resolveLeastUsedIndex(updated);
-      updated[replaceIndex] = next;
-    }
+    final updated = List<ProjectEntity>.from(projects)..add(next);
 
     for (var i = 0; i < updated.length; i++) {
       final shouldDefault = updated[i].id == next.id;
@@ -131,8 +128,13 @@ class ProjectRepository implements IProjectRepository {
     if (!exists) return null;
 
     final now = DateTime.now().millisecondsSinceEpoch;
-    final targetIndex = slotIndex.clamp(0, _maxProjects - 1);
     final projects = await reconcileWithDisk();
+    if (projects.isEmpty && _maxProjects <= 0) {
+      return null;
+    }
+    final targetIndex = slotIndex < 0
+        ? 0
+        : (slotIndex > projects.length ? projects.length : slotIndex);
     final updated = List<ProjectEntity>.from(projects);
 
     final existingIndex = updated.indexWhere(
@@ -145,21 +147,30 @@ class ProjectRepository implements IProjectRepository {
             name: _nameFromPath(normalizedTarget),
             folderPath: normalizedTarget,
           );
-      final insertAt = targetIndex.clamp(0, updated.length);
+      final insertAt = targetIndex < 0
+          ? 0
+          : (targetIndex > updated.length ? updated.length : targetIndex);
       updated.insert(insertAt, existing);
 
       final normalized = _ensureDistinctColors(
         _normalizeDefaultFlags(
-          updated.take(_maxProjects).toList(growable: false),
+          updated,
         ),
       );
       await _saveAll(normalized);
       if (normalized.isEmpty) return null;
-      final resolvedIndex = insertAt.clamp(0, normalized.length - 1);
+      final resolvedIndex = insertAt < 0
+          ? 0
+          : (insertAt > normalized.length - 1
+                ? normalized.length - 1
+                : insertAt);
       return normalized[resolvedIndex];
     }
 
     final replacingExisting = targetIndex < updated.length;
+    if (!replacingExisting && updated.length >= _maxProjects) {
+      return null;
+    }
     final keepDefault =
         updated.isEmpty ||
         (replacingExisting && updated[targetIndex].isDefault);
@@ -178,22 +189,44 @@ class ProjectRepository implements IProjectRepository {
 
     if (replacingExisting) {
       updated[targetIndex] = replacement;
-    } else if (updated.length < _maxProjects) {
+    } else if (updated.length <= targetIndex) {
       updated.add(replacement);
     } else {
-      updated[_maxProjects - 1] = replacement;
+      updated[targetIndex] = replacement;
     }
 
     final normalized = _ensureDistinctColors(
       _normalizeDefaultFlags(
-        updated.take(_maxProjects).toList(growable: false),
+        updated,
       ),
     );
     await _saveAll(normalized);
 
     if (normalized.isEmpty) return null;
-    final resolvedIndex = targetIndex.clamp(0, normalized.length - 1);
+    final resolvedIndex = targetIndex < 0
+        ? 0
+        : (targetIndex > normalized.length - 1
+              ? normalized.length - 1
+              : targetIndex);
     return normalized[resolvedIndex];
+  }
+
+  @override
+  Future<void> removeFolder(String folderPath) async {
+    final normalizedTarget = _normalizePath(folderPath);
+    if (normalizedTarget.isEmpty) return;
+
+    final projects = await reconcileWithDisk();
+    final updated = projects
+        .where((project) => !_samePath(project.folderPath, normalizedTarget))
+        .toList(growable: false);
+
+    if (updated.length == projects.length) {
+      return;
+    }
+
+    final normalized = _ensureDistinctColors(_normalizeDefaultFlags(updated));
+    await _saveAll(normalized);
   }
 
   @override
@@ -389,50 +422,6 @@ class ProjectRepository implements IProjectRepository {
       byPath[key] = merged;
     }
     return byPath.values.toList(growable: false);
-  }
-
-  List<ProjectEntity> _limitToThree(List<ProjectEntity> projects) {
-    if (projects.length <= _maxProjects) {
-      return projects;
-    }
-
-    final sorted = List<ProjectEntity>.from(projects)
-      ..sort((a, b) {
-        if (a.isDefault != b.isDefault) {
-          return a.isDefault ? -1 : 1;
-        }
-
-        final usage = b.usageCount.compareTo(a.usageCount);
-        if (usage != 0) return usage;
-
-        final recent = b.lastUsedAt.compareTo(a.lastUsedAt);
-        if (recent != 0) return recent;
-
-        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-      });
-
-    return sorted.take(_maxProjects).toList(growable: false);
-  }
-
-  int _resolveLeastUsedIndex(List<ProjectEntity> projects) {
-    var candidateIndex = 0;
-    for (var i = 1; i < projects.length; i++) {
-      final candidate = projects[candidateIndex];
-      final current = projects[i];
-
-      if (current.usageCount < candidate.usageCount) {
-        candidateIndex = i;
-        continue;
-      }
-      if (current.usageCount > candidate.usageCount) {
-        continue;
-      }
-
-      if (current.lastUsedAt < candidate.lastUsedAt) {
-        candidateIndex = i;
-      }
-    }
-    return candidateIndex;
   }
 
   List<ProjectEntity> _normalizeDefaultFlags(List<ProjectEntity> projects) {

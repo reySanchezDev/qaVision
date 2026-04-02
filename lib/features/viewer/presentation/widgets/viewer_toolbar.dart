@@ -9,13 +9,33 @@ import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_state.dart';
+import 'package:qavision/features/viewer/presentation/widgets/viewer_layers_panel.dart';
+import 'package:qavision/features/viewer/presentation/widgets/viewer_rich_text_panel_runtime.dart';
 import 'package:qavision/features/viewer/presentation/widgets/viewer_toolbar_context_properties.dart';
 import 'package:qavision/features/viewer/presentation/widgets/viewer_toolbar_primitives.dart';
 
 /// Top toolbar with grouped tools and contextual properties.
 class ViewerToolbar extends StatelessWidget {
   /// Creates [ViewerToolbar].
-  const ViewerToolbar({super.key});
+  const ViewerToolbar({
+    required this.showLayersPanel,
+    required this.layersDockSide,
+    required this.onToggleLayersPanel,
+    this.richTextRuntime,
+    super.key,
+  });
+
+  /// Indica si el panel de capas esta visible.
+  final bool showLayersPanel;
+
+  /// Lado de acople actual del panel de capas.
+  final ViewerLayersDockSide layersDockSide;
+
+  /// Alterna la visibilidad del panel de capas.
+  final VoidCallback onToggleLayersPanel;
+
+  /// Bridge activo cuando un panel de texto enriquecido esta seleccionado.
+  final ViewerRichTextPanelRuntime? richTextRuntime;
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +66,7 @@ class ViewerToolbar extends StatelessWidget {
                   state: state,
                   selectedImage: selectedImage,
                   selectedAnnotation: selectedAnnotation,
+                  richTextRuntime: richTextRuntime,
                   frameDefaultsResolver: _frameDefaults,
                 ),
               ],
@@ -109,6 +130,13 @@ class ViewerToolbar extends StatelessWidget {
             child: _ViewerToolbarMenuItem(
               icon: Icons.text_fields,
               label: 'Texto',
+            ),
+          ),
+          PopupMenuItem<AnnotationType>(
+            value: AnnotationType.richTextPanel,
+            child: _ViewerToolbarMenuItem(
+              icon: Icons.notes_rounded,
+              label: 'Panel texto',
             ),
           ),
           PopupMenuItem<AnnotationType>(
@@ -273,6 +301,7 @@ class ViewerToolbar extends StatelessWidget {
 
   bool _isCommentTool(AnnotationType tool) {
     return tool == AnnotationType.text ||
+        tool == AnnotationType.richTextPanel ||
         tool == AnnotationType.commentBubble ||
         tool == AnnotationType.stepMarker;
   }
@@ -294,6 +323,7 @@ class ViewerToolbar extends StatelessWidget {
 
   IconData _commentToolIcon(AnnotationType tool) {
     return switch (tool) {
+      AnnotationType.richTextPanel => Icons.notes_rounded,
       AnnotationType.commentBubble => Icons.mode_comment_outlined,
       AnnotationType.stepMarker => Icons.format_list_numbered_rounded,
       _ => Icons.text_fields,
