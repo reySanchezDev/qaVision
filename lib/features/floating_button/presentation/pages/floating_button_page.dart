@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -2124,59 +2125,177 @@ class _VideoCountdownSurface extends StatelessWidget {
     return Material(
       color: Colors.black.withValues(alpha: 0.18),
       child: Center(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: const Color(0xE6121820),
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x4D000000),
-                blurRadius: 24,
-                offset: Offset(0, 12),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(32),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xF019202B),
+                    Color(0xEE10161D),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(32),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x66000000),
+                    blurRadius: 34,
+                    offset: Offset(0, 16),
+                  ),
+                ],
               ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.videocam_rounded,
-                  color: Color(0xFFFF6B6B),
-                  size: 28,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 28,
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  '$countdown',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 56,
-                    fontWeight: FontWeight.w800,
-                  ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: const Color(0x26FF6B6B),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: const Color(0x55FF8A8A),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.videocam_rounded,
+                        color: Color(0xFFFF7B7B),
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _AnimatedCountdownNumber(countdown: countdown),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'La grabación está por comenzar',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.70),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                const Text(
-                  'La grabación está por comenzar',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.70),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _AnimatedCountdownNumber extends StatelessWidget {
+  const _AnimatedCountdownNumber({
+    required this.countdown,
+  });
+
+  final int countdown;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 138,
+      height: 138,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          TweenAnimationBuilder<double>(
+            key: ValueKey('ring-$countdown'),
+            tween: Tween(begin: 1.22, end: 0.96),
+            duration: const Duration(milliseconds: 920),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, child) {
+              return Transform.scale(
+                scale: value,
+                child: Opacity(
+                  opacity: (1.26 - value).clamp(0.18, 0.72),
+                  child: child,
+                ),
+              );
+            },
+            child: Container(
+              width: 114,
+              height: 114,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0x66FF7B7B),
+                  width: 2.4,
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x44FF6B6B),
+                    blurRadius: 28,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          TweenAnimationBuilder<double>(
+            key: ValueKey('pulse-$countdown'),
+            tween: Tween(begin: 0.86, end: 1.0),
+            duration: const Duration(milliseconds: 700),
+            curve: Curves.easeOutBack,
+            builder: (context, value, child) {
+              return Transform.scale(
+                scale: value,
+                child: Opacity(
+                  opacity: (value * 1.08).clamp(0.0, 1.0),
+                  child: child,
+                ),
+              );
+            },
+            child: ShaderMask(
+              shaderCallback: (bounds) {
+                return const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0xFFFFF8F8),
+                    Color(0xFFFF8A8A),
+                  ],
+                ).createShader(bounds);
+              },
+              child: Text(
+                '$countdown',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: countdown == 1 ? 72 : 78,
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                  shadows: const [
+                    Shadow(
+                      color: Color(0x66FF6B6B),
+                      blurRadius: 20,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
