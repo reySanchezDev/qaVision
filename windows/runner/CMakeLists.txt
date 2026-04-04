@@ -36,5 +36,22 @@ target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
+# Ensure ffmpeg is present next to the built app bundle for video recording.
+set(QAVISION_FFMPEG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/ffmpeg/bin")
+set(QAVISION_FFMPEG_TARGET_DIR "$<TARGET_FILE_DIR:${BINARY_NAME}>/tools/ffmpeg")
+if(EXISTS "${QAVISION_FFMPEG_SOURCE_DIR}/ffmpeg.exe")
+  add_custom_command(
+    TARGET ${BINARY_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${QAVISION_FFMPEG_TARGET_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${QAVISION_FFMPEG_SOURCE_DIR}/ffmpeg.exe"
+      "${QAVISION_FFMPEG_TARGET_DIR}/ffmpeg.exe"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${QAVISION_FFMPEG_SOURCE_DIR}/FFMPEG_LICENSE.txt"
+      "${QAVISION_FFMPEG_TARGET_DIR}/FFMPEG_LICENSE.txt"
+    VERBATIM
+  )
+endif()
+
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)

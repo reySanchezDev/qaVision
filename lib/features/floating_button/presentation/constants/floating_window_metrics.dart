@@ -4,7 +4,7 @@ import 'dart:ui';
 const int kFloatingQuickAccessCount = 3;
 
 /// Cantidad de botones de modo de captura.
-const int kFloatingCaptureModeCount = 3;
+const int kFloatingCaptureModeCount = 4;
 
 /// Cantidad de botones del extremo izquierdo.
 const int kFloatingLeftEdgeActionCount = 1;
@@ -87,3 +87,6 @@ const Size kFloatingVerticalSize = Size(
   kFloatingVerticalWidth,
   kFloatingVerticalHeight,
 );
+
+/// Tamano de la HUD compacta usada durante la grabacion de video.
+const Size kFloatingVideoRecordingHudSize = Size(440, 52);

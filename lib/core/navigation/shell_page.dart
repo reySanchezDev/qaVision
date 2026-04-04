@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:qavision/core/di/service_locator.dart';
+import 'package:qavision/core/services/video_recording_runtime_service.dart';
 import 'package:qavision/features/capture/presentation/bloc/capture_bloc.dart';
 import 'package:qavision/features/capture/presentation/bloc/capture_state.dart';
 import 'package:qavision/features/capture/presentation/widgets/capture_thumbnail_overlay.dart';
@@ -72,6 +74,9 @@ class _ShellPageState extends State<ShellPage>
     if (_applyingWindowGeometry || !mounted) {
       return;
     }
+    if (sl<VideoRecordingRuntimeService>().isHudVisible) {
+      return;
+    }
     _hoverCollapseTimer?.cancel();
     if (_nativeDragInProgress) {
       return;
@@ -84,7 +89,10 @@ class _ShellPageState extends State<ShellPage>
 
   @override
   Future<void> onWindowMoved() async {
-    if (_applyingWindowGeometry) {
+    if (_applyingWindowGeometry || !mounted) {
+      return;
+    }
+    if (sl<VideoRecordingRuntimeService>().isHudVisible) {
       return;
     }
     await _finalizeWindowDrag();
@@ -121,8 +129,14 @@ class _ShellPageState extends State<ShellPage>
 
   Future<void> _syncDockingWithCurrentDisplay() async {
     if (!mounted) return;
+    final videoRuntime = sl<VideoRecordingRuntimeService>();
+    final isVideoRecording = videoRuntime.isRecording;
+    final isVideoHudVisible = videoRuntime.isHudVisible;
     final floatingState = context.read<FloatingButtonBloc>().state;
-    if (floatingState.isRegionSelecting) {
+    if (isVideoRecording ||
+        isVideoHudVisible ||
+        floatingState.isRegionSelecting ||
+        floatingState.isVideoOverlayActive) {
       return;
     }
 
@@ -183,10 +197,16 @@ class _ShellPageState extends State<ShellPage>
       return;
     }
 
+    final videoRuntime = sl<VideoRecordingRuntimeService>();
+    final isVideoRecording = videoRuntime.isRecording;
+    final isVideoHudVisible = videoRuntime.isHudVisible;
     final state = context.read<FloatingButtonBloc>().state;
-    if (!state.isVisible ||
+    if (isVideoRecording ||
+        isVideoHudVisible ||
+        !state.isVisible ||
         state.isClipSessionActive ||
-        state.isRegionSelecting) {
+        state.isRegionSelecting ||
+        state.isVideoOverlayActive) {
       return;
     }
 
@@ -217,7 +237,13 @@ class _ShellPageState extends State<ShellPage>
       return;
     }
 
+    final videoRuntime = sl<VideoRecordingRuntimeService>();
+    final isVideoRecording = videoRuntime.isRecording;
+    final isVideoHudVisible = videoRuntime.isHudVisible;
     final state = context.read<FloatingButtonBloc>().state;
+    if (isVideoRecording || isVideoHudVisible) {
+      return;
+    }
     setState(() {
       _hoverExpanded = value;
     });
@@ -229,6 +255,10 @@ class _ShellPageState extends State<ShellPage>
   }
 
   Future<void> _applyWindowGeometry(FloatingButtonState state) async {
+    final videoRuntime = sl<VideoRecordingRuntimeService>();
+    if (videoRuntime.isHudVisible || videoRuntime.isRecording) {
+      return;
+    }
     _applyingWindowGeometry = true;
     try {
       await windowManager.setResizable(false);
@@ -273,10 +303,16 @@ class _ShellPageState extends State<ShellPage>
   Future<void> _ensureFloatingWindowPriority() async {
     if (!mounted) return;
 
+    final videoRuntime = sl<VideoRecordingRuntimeService>();
+    final isVideoRecording = videoRuntime.isRecording;
+    final isVideoHudVisible = videoRuntime.isHudVisible;
     final state = context.read<FloatingButtonBloc>().state;
-    if (!state.isVisible ||
+    if (isVideoRecording ||
+        isVideoHudVisible ||
+        !state.isVisible ||
         state.isClipSessionActive ||
-        state.isRegionSelecting) {
+        state.isRegionSelecting ||
+        state.isVideoOverlayActive) {
       return;
     }
 
@@ -317,6 +353,13 @@ class _ShellPageState extends State<ShellPage>
   Future<void> _finalizeWindowDrag() async {
     if (!mounted) return;
     final floatingBloc = context.read<FloatingButtonBloc>();
+    if (sl<VideoRecordingRuntimeService>().isHudVisible) {
+      setState(() {
+        _nativeDragInProgress = false;
+        _hoverExpanded = false;
+      });
+      return;
+    }
     await _syncDockingWithCurrentDisplay();
     if (!mounted) return;
     await Future<void>.delayed(Duration.zero);
@@ -359,7 +402,7 @@ class _ShellPageState extends State<ShellPage>
   }
 
   Offset _effectiveWindowPosition(FloatingButtonState state) {
-    if (!_hoverExpanded) {
+    if (sl<VideoRecordingRuntimeService>().isHudVisible || !_hoverExpanded) {
       return state.position;
     }
 
@@ -394,13 +437,23 @@ class _ShellPageState extends State<ShellPage>
             previous.position != current.position ||
             previous.dockEdge != current.dockEdge,
         listener: (context, state) async {
+          final videoRuntime = sl<VideoRecordingRuntimeService>();
+          final isVideoRecording = videoRuntime.isRecording;
+          final isVideoHudVisible = videoRuntime.isHudVisible;
           if (!state.isVisible) {
             _collapseHoverExpansion();
             await windowManager.hide();
             return;
           }
 
-          if (state.isClipSessionActive || state.isRegionSelecting) {
+          if (state.isClipSessionActive ||
+              state.isRegionSelecting ||
+              state.isVideoOverlayActive) {
+            _collapseHoverExpansion();
+            return;
+          }
+
+          if (isVideoRecording || isVideoHudVisible) {
             _collapseHoverExpansion();
             return;
           }
@@ -466,7 +519,6 @@ class _FloatingWindowContent extends StatelessWidget {
     final isCapturing = context.select<CaptureBloc, bool>(
       (bloc) => bloc.state is CaptureInProgress,
     );
-
     return Offstage(
       offstage: isCapturing,
       child: FloatingButtonBody(

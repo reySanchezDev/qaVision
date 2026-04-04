@@ -4,6 +4,8 @@ import 'package:qavision/core/services/clipboard_service.dart';
 import 'package:qavision/core/services/file_system_service.dart';
 import 'package:qavision/core/services/native_screen_capture_service.dart';
 import 'package:qavision/core/services/share_service.dart';
+import 'package:qavision/core/services/video_recording_service.dart';
+import 'package:qavision/core/services/video_recording_runtime_service.dart';
 import 'package:qavision/core/storage/storage_service.dart';
 import 'package:qavision/features/capture/data/repositories/capture_repository.dart';
 import 'package:qavision/features/capture/domain/repositories/i_capture_repository.dart';
@@ -38,6 +40,14 @@ void setupServiceLocator() {
     )
     ..registerLazySingleton<ClipboardService>(ClipboardService.new)
     ..registerLazySingleton<ShareService>(ShareService.new)
+    ..registerLazySingleton<VideoRecordingService>(
+      () => VideoRecordingService(
+        fileSystemService: sl<FileSystemService>(),
+      ),
+    )
+    ..registerLazySingleton<VideoRecordingRuntimeService>(
+      VideoRecordingRuntimeService.new,
+    )
     ..registerLazySingleton<ViewerDocumentPersistenceService>(
       () => ViewerDocumentPersistenceService(
         fileSystemService: sl<FileSystemService>(),

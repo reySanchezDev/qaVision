@@ -164,3 +164,43 @@ final class FloatingButtonRegionSelectionEnded extends FloatingButtonEvent {
   /// Crea una instancia de [FloatingButtonRegionSelectionEnded].
   const FloatingButtonRegionSelectionEnded();
 }
+
+/// Marca el inicio de un overlay de video a pantalla completa.
+final class FloatingButtonVideoOverlayStarted extends FloatingButtonEvent {
+  /// Crea una instancia de [FloatingButtonVideoOverlayStarted].
+  const FloatingButtonVideoOverlayStarted();
+}
+
+/// Marca el fin de un overlay de video a pantalla completa.
+final class FloatingButtonVideoOverlayEnded extends FloatingButtonEvent {
+  /// Crea una instancia de [FloatingButtonVideoOverlayEnded].
+  const FloatingButtonVideoOverlayEnded();
+}
+
+/// Activa la HUD compacta de grabacion de video.
+final class FloatingButtonVideoRecordingStarted extends FloatingButtonEvent {
+  /// Crea una instancia de [FloatingButtonVideoRecordingStarted].
+  const FloatingButtonVideoRecordingStarted({
+    required this.position,
+  });
+
+  /// Posicion objetivo de la HUD durante la grabacion.
+  final Offset position;
+
+  @override
+  List<Object?> get props => [position];
+}
+
+/// Desactiva la HUD de grabacion y restaura la posicion flotante normal.
+final class FloatingButtonVideoRecordingStopped extends FloatingButtonEvent {
+  /// Crea una instancia de [FloatingButtonVideoRecordingStopped].
+  const FloatingButtonVideoRecordingStopped({
+    required this.position,
+  });
+
+  /// Posicion a restaurar al salir del modo grabacion.
+  final Offset position;
+
+  @override
+  List<Object?> get props => [position];
+}

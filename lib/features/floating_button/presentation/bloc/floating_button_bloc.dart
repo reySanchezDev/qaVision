@@ -37,6 +37,10 @@ class FloatingButtonBloc
     on<FloatingButtonClipSessionStopped>(_onClipSessionStopped);
     on<FloatingButtonRegionSelectionStarted>(_onRegionSelectionStarted);
     on<FloatingButtonRegionSelectionEnded>(_onRegionSelectionEnded);
+    on<FloatingButtonVideoOverlayStarted>(_onVideoOverlayStarted);
+    on<FloatingButtonVideoOverlayEnded>(_onVideoOverlayEnded);
+    on<FloatingButtonVideoRecordingStarted>(_onVideoRecordingStarted);
+    on<FloatingButtonVideoRecordingStopped>(_onVideoRecordingStopped);
 
     _projectSubscription = _projectBloc.stream.listen((projectState) {
       if (projectState is ProjectLoadSuccess) {
@@ -319,6 +323,50 @@ class FloatingButtonBloc
   ) {
     if (!state.isRegionSelecting) return;
     emit(state.copyWith(isRegionSelecting: false));
+  }
+
+  void _onVideoOverlayStarted(
+    FloatingButtonVideoOverlayStarted event,
+    Emitter<FloatingButtonState> emit,
+  ) {
+    if (state.isVideoOverlayActive) return;
+    emit(state.copyWith(isVideoOverlayActive: true));
+  }
+
+  void _onVideoOverlayEnded(
+    FloatingButtonVideoOverlayEnded event,
+    Emitter<FloatingButtonState> emit,
+  ) {
+    if (!state.isVideoOverlayActive) return;
+    emit(state.copyWith(isVideoOverlayActive: false));
+  }
+
+  void _onVideoRecordingStarted(
+    FloatingButtonVideoRecordingStarted event,
+    Emitter<FloatingButtonState> emit,
+  ) {
+    emit(
+      state.copyWith(
+        position: event.position,
+        isVideoRecordingHud: true,
+        isVideoOverlayActive: false,
+        isRegionSelecting: false,
+      ),
+    );
+  }
+
+  void _onVideoRecordingStopped(
+    FloatingButtonVideoRecordingStopped event,
+    Emitter<FloatingButtonState> emit,
+  ) {
+    emit(
+      state.copyWith(
+        position: event.position,
+        isVideoRecordingHud: false,
+        isVideoOverlayActive: false,
+        isRegionSelecting: false,
+      ),
+    );
   }
 
   void _dispatchCapture({

@@ -23,11 +23,14 @@ enum FloatingCaptureMode {
   /// Captura de pantalla completa.
   screen,
 
-  /// Captura de región seleccionada.
+  /// Captura de region seleccionada.
   region,
 
-  /// Sesión de captura continua (clip).
+  /// Sesion de captura continua (clip).
   clip,
+
+  /// Grabacion de video.
+  video,
 }
 
 /// Helpers de [FloatingDockEdge].
@@ -51,6 +54,8 @@ class FloatingButtonState extends Equatable {
     this.captureMode = FloatingCaptureMode.region,
     this.isClipSessionActive = false,
     this.isRegionSelecting = false,
+    this.isVideoOverlayActive = false,
+    this.isVideoRecordingHud = false,
   });
 
   /// Posicion actual de la ventana flotante (top-left).
@@ -83,12 +88,22 @@ class FloatingButtonState extends Equatable {
   /// Si el selector de region esta activo temporalmente.
   final bool isRegionSelecting;
 
+  /// Si el flujo visual de video esta ocupando la ventana completa.
+  final bool isVideoOverlayActive;
+
+  /// Si la ventana flotante debe renderizar la HUD de grabacion.
+  final bool isVideoRecordingHud;
+
   /// True si el layout interno debe renderizarse en vertical.
   bool get isVertical => dockEdge.isVertical;
 
   /// Tamano de ventana requerido segun la orientacion actual.
   Size get windowSize =>
-      isVertical ? kFloatingVerticalSize : kFloatingHorizontalSize;
+      isVideoRecordingHud
+      ? kFloatingVideoRecordingHudSize
+      : isVertical
+      ? kFloatingVerticalSize
+      : kFloatingHorizontalSize;
 
   /// Crea una copia de este estado con los campos especificados modificados.
   FloatingButtonState copyWith({
@@ -103,6 +118,8 @@ class FloatingButtonState extends Equatable {
     FloatingCaptureMode? captureMode,
     bool? isClipSessionActive,
     bool? isRegionSelecting,
+    bool? isVideoOverlayActive,
+    bool? isVideoRecordingHud,
   }) {
     return FloatingButtonState(
       position: position ?? this.position,
@@ -117,6 +134,8 @@ class FloatingButtonState extends Equatable {
       captureMode: captureMode ?? this.captureMode,
       isClipSessionActive: isClipSessionActive ?? this.isClipSessionActive,
       isRegionSelecting: isRegionSelecting ?? this.isRegionSelecting,
+      isVideoOverlayActive: isVideoOverlayActive ?? this.isVideoOverlayActive,
+      isVideoRecordingHud: isVideoRecordingHud ?? this.isVideoRecordingHud,
     );
   }
 
@@ -132,5 +151,7 @@ class FloatingButtonState extends Equatable {
     captureMode,
     isClipSessionActive,
     isRegionSelecting,
+    isVideoOverlayActive,
+    isVideoRecordingHud,
   ];
 }

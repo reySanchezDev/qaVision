@@ -106,3 +106,14 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+set(THIRD_PARTY_FFMPEG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/ffmpeg/bin")
+if(EXISTS "${THIRD_PARTY_FFMPEG_DIR}/ffmpeg.exe")
+  install(
+    FILES
+      "${THIRD_PARTY_FFMPEG_DIR}/ffmpeg.exe"
+      "${THIRD_PARTY_FFMPEG_DIR}/FFMPEG_LICENSE.txt"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/tools/ffmpeg"
+    COMPONENT Runtime
+  )
+endif()
