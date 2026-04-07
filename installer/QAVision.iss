@@ -1,11 +1,11 @@
 #define MyAppName "QAVision"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "1.0.0"
 #define MyAppPublisher "QAVision"
 #define MyAppExeName "qavision.exe"
 #define MyAppId "{{E0E5E1A8-2D57-4D73-8B13-6A647F5A9E21}"
 #define MySourceDir "..\build\windows\x64\runner\Release"
-#define MyIconFile "..\windows\runner\resources\app_icon.ico"
-#define MyInstalledIconFile "{app}\\app_icon.ico"
+#define MyIconFile "..\windows\runner\resources\ico3.ico"
+#define MyInstalledIconFile "{app}\\ico3.ico"
 
 [Setup]
 AppId={#MyAppId}
@@ -41,7 +41,7 @@ Name: "desktopicon"; Description: "Crear acceso directo en el escritorio"; Flags
 
 [Files]
 Source: "{#MySourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#MyIconFile}"; DestDir: "{app}"; DestName: "app_icon.ico"; Flags: ignoreversion
+Source: "{#MyIconFile}"; DestDir: "{app}"; DestName: "ico3.ico"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{#MyInstalledIconFile}"

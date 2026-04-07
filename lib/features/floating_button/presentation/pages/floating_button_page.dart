@@ -46,6 +46,7 @@ class FloatingButtonBody extends StatefulWidget {
 
 class _FloatingButtonBodyState extends State<FloatingButtonBody> {
   bool _clipLoopRunning = false;
+  bool _folderPickerOpen = false;
   Completer<_RegionSelectionDialogResult?>? _regionSelectionCompleter;
   Completer<_VideoTargetChoice?>? _videoTargetCompleter;
   int? _videoCountdownValue;
@@ -123,7 +124,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
       if (clipWindowHidden && mounted) {
         final isVisible = await windowManager.isVisible();
         if (!isVisible) {
-          await windowManager.show();
+          await windowManager.show(inactive: true);
         }
       }
     }
@@ -309,7 +310,17 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
   }
 
   Future<bool> _pickFolderForSlot(int slotIndex) async {
-    final selectedPath = await FilePicker.platform.getDirectoryPath();
+    if (_folderPickerOpen) {
+      return false;
+    }
+
+    _folderPickerOpen = true;
+    String? selectedPath;
+    try {
+      selectedPath = await _pickDirectoryPathModal();
+    } finally {
+      _folderPickerOpen = false;
+    }
     if (selectedPath == null || selectedPath.trim().isEmpty) {
       return false;
     }
@@ -322,6 +333,29 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
       ),
     );
     return true;
+  }
+
+  Future<String?> _pickDirectoryPathModal() async {
+    try {
+      await windowManager.setAlwaysOnTop(false);
+      await windowManager.setIgnoreMouseEvents(true, forward: true);
+    } on Object {
+      // Si alguna API no responde en cierto equipo, el selector aun puede abrir.
+    }
+
+    try {
+      return await FilePicker.platform.getDirectoryPath(
+        lockParentWindow: true,
+      );
+    } finally {
+      try {
+        await windowManager.setIgnoreMouseEvents(false);
+        await windowManager.setAlwaysOnTop(true);
+        await windowManager.show(inactive: true);
+      } on Object {
+        // Evitamos romper el flujo si la restauracion visual falla.
+      }
+    }
   }
 
   Future<void> _startVideoCaptureFlow(FloatingButtonState state) async {
@@ -1260,7 +1294,82 @@ class _VideoRecordingHud extends StatelessWidget {
       child: DecoratedBox(
         decoration: _floatingPanelDecoration(),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: isPaused
+                          ? const Color(0xFFE0B74C)
+                          : const Color(0xFFE25252),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 68,
+                    child: Text(
+                      _formatDuration(elapsed),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Expanded(
+                child: Center(
+                  child: Text(
+                    'GRABANDO VIDEO',
+                    style: TextStyle(
+                      color: isPaused
+                          ? Colors.white.withValues(alpha: 0.78)
+                          : Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.35,
+                    ),
+                  ),
+                ),
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _RecordingHudButton(
+                    icon: isPaused
+                        ? Icons.play_arrow_rounded
+                        : Icons.pause_rounded,
+                    onTap: isBusy ? null : onPauseToggle,
+                  ),
+                  const SizedBox(width: 8),
+                  _RecordingHudButton(
+                    icon: Icons.stop_rounded,
+                    destructive: true,
+                    onTap: isBusy ? null : onStop,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: DecoratedBox(
+        decoration: _floatingPanelDecoration(),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           child: Row(
             children: [
               Container(
@@ -1273,8 +1382,9 @@ class _VideoRecordingHud extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 68,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1976,15 +2086,10 @@ class _VideoTargetSelectionSurface extends StatelessWidget {
                           icon: Icons.monitor,
                           title: label,
                           subtitle:
-                              '${size.width.round()} x ${size.height.round()}',
-                          onTap: () {
-                            onSelected(
-                              _VideoTargetChoice.display(
-                                display: display,
-                                label: label,
-                              ),
-                            );
-                          },
+                              '${size.width.round()} x ${size.height.round()} · Próximamente',
+                          badgeLabel: 'En construcción',
+                          enabled: false,
+                          onTap: () {},
                         ),
                       );
                     }),
@@ -2043,26 +2148,40 @@ class _VideoTargetOptionTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.badgeLabel,
+    this.enabled = true,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final String? badgeLabel;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
+    final foreground = enabled
+        ? Colors.white
+        : Colors.white.withValues(alpha: 0.52);
+    final secondary = enabled
+        ? Colors.white.withValues(alpha: 0.62)
+        : Colors.white.withValues(alpha: 0.42);
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: enabled ? onTap : null,
         borderRadius: BorderRadius.circular(16),
         child: Ink(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            color: const Color(0xFF0F141B),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            color: enabled
+                ? const Color(0xFF0F141B)
+                : const Color(0xFF131920),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: enabled ? 0.08 : 0.05),
+            ),
           ),
           child: Row(
             children: [
@@ -2070,29 +2189,62 @@ class _VideoTargetOptionTile extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1C2632),
+                  color: enabled
+                      ? const Color(0xFF1C2632)
+                      : const Color(0xFF19212B),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, color: Colors.white, size: 20),
+                child: Icon(icon, color: foreground, size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: TextStyle(
+                              color: foreground,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        if (badgeLabel != null) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0x29F0B35A),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: const Color(0x66F0B35A),
+                              ),
+                            ),
+                            child: Text(
+                              badgeLabel!,
+                              style: const TextStyle(
+                                color: Color(0xFFF0C980),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 3),
                     Text(
                       subtitle,
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.62),
+                        color: secondary,
                         fontSize: 12,
                       ),
                     ),
@@ -2100,8 +2252,8 @@ class _VideoTargetOptionTile extends StatelessWidget {
                 ),
               ),
               Icon(
-                Icons.chevron_right_rounded,
-                color: Colors.white.withValues(alpha: 0.62),
+                enabled ? Icons.chevron_right_rounded : Icons.build_rounded,
+                color: secondary,
               ),
             ],
           ),

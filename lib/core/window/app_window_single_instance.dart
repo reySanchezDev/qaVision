@@ -10,11 +10,14 @@ import 'package:qavision/core/window/app_window_role.dart';
 class AppWindowSingleInstance {
   AppWindowSingleInstance._({
     required this.role,
+    required RandomAccessFile lockFile,
     required ServerSocket server,
-  }) : _server = server;
+  }) : _lockFile = lockFile,
+       _server = server;
 
   /// Rol de la ventana de esta instancia.
   final AppWindowRole role;
+  final RandomAccessFile _lockFile;
   final ServerSocket _server;
 
   /// Intenta adquirir la instancia unica definida en [request].
@@ -26,7 +29,9 @@ class AppWindowSingleInstance {
     required Future<void> Function(AppWindowCommand command) onCommand,
   }) async {
     final role = request.role;
+    RandomAccessFile? lockFile;
     try {
+      lockFile = await _acquireRoleLock(role);
       final server = await ServerSocket.bind(
         InternetAddress.loopbackIPv4,
         role.singleInstancePort,
@@ -38,9 +43,18 @@ class AppWindowSingleInstance {
 
       return AppWindowSingleInstance._(
         role: role,
+        lockFile: lockFile,
         server: server,
       );
     } on SocketException {
+      await _releaseLock(lockFile);
+      await sendCommand(
+        role,
+        AppWindowCommand.activation(request),
+      );
+      return null;
+    } on FileSystemException {
+      await _releaseLock(lockFile);
       await sendCommand(
         role,
         AppWindowCommand.activation(request),
@@ -81,6 +95,41 @@ class AppWindowSingleInstance {
   /// Libera el canal de instancia unica.
   Future<void> dispose() async {
     await _server.close();
+    await _releaseLock(_lockFile);
+  }
+
+  static Future<RandomAccessFile> _acquireRoleLock(AppWindowRole role) async {
+    final lockDirectory = Directory(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}qavision_locks',
+    );
+    if (!await lockDirectory.exists()) {
+      await lockDirectory.create(recursive: true);
+    }
+
+    final file = File(
+      '${lockDirectory.path}${Platform.pathSeparator}${role.cliValue}.lock',
+    );
+    final handle = await file.open(mode: FileMode.writeOnlyAppend);
+    await handle.lock(FileLock.exclusive);
+    await handle.setPosition(0);
+    await handle.truncate(0);
+    await handle.writeString('${pid}');
+    await handle.flush();
+    return handle;
+  }
+
+  static Future<void> _releaseLock(RandomAccessFile? handle) async {
+    if (handle == null) return;
+    try {
+      await handle.unlock();
+    } on FileSystemException {
+      // Ignorar unlock sobre handles ya cerrados o liberados.
+    }
+    try {
+      await handle.close();
+    } on FileSystemException {
+      // Ignorar cierre duplicado.
+    }
   }
 
   static void _startCommandServer({

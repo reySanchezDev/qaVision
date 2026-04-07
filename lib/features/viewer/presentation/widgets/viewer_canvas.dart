@@ -159,7 +159,11 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
     if (state.activeTool == AnnotationType.text ||
         state.activeTool == AnnotationType.commentBubble) {
       final text = await ViewerTextDialog.prompt(context);
-      if (!context.mounted || text == null || text.trim().isEmpty) return;
+      if (!context.mounted) return;
+      if (text == null || text.trim().isEmpty) {
+        bloc.add(const ViewerToolChanged(AnnotationType.selection));
+        return;
+      }
       bloc.add(ViewerTextAdded(position: point, text: text.trim()));
       return;
     }

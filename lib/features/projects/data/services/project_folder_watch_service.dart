@@ -56,6 +56,7 @@ class ProjectFolderWatchService {
       StreamController<ProjectFolderChangeEvent>.broadcast();
 
   Timer? _pollTimer;
+  Timer? _dirtyDebounceTimer;
   Set<String> _trackedFolders = <String>{};
 
   /// Stream de cambios detectados.
@@ -82,12 +83,15 @@ class ProjectFolderWatchService {
       _parentSubscriptions.remove(parent);
     }
 
+    var watchFailures = false;
+
     final toAdd = parents
         .where((parent) => !_parentSubscriptions.containsKey(parent))
         .toList(growable: false);
     for (final parent in toAdd) {
       final directory = Directory(parent);
       if (!directory.existsSync()) {
+        watchFailures = true;
         continue;
       }
 
@@ -96,16 +100,20 @@ class ProjectFolderWatchService {
           _onFileSystemEvent,
         );
       } on Exception {
-        // Ignorar fallos de watch por directorio; polling cubre fallback.
+        watchFailures = true;
       }
     }
 
-    _restartPolling();
+    _restartPolling(
+      enable: normalizedTracked.isNotEmpty &&
+          (watchFailures || _parentSubscriptions.isEmpty),
+    );
   }
 
   /// Libera recursos.
   Future<void> dispose() async {
     _pollTimer?.cancel();
+    _dirtyDebounceTimer?.cancel();
     for (final subscription in _parentSubscriptions.values) {
       await subscription.cancel();
     }
@@ -131,12 +139,27 @@ class ProjectFolderWatchService {
       }
     }
 
-    _controller.add(const ProjectFolderChangeEvent.dirty());
+    _scheduleDirtyEvent();
   }
 
-  void _restartPolling() {
+  void _restartPolling({required bool enable}) {
     _pollTimer?.cancel();
+    if (!enable) {
+      _pollTimer = null;
+      return;
+    }
+
     _pollTimer = Timer.periodic(_pollingInterval, (_) {
+      _scheduleDirtyEvent();
+    });
+  }
+
+  void _scheduleDirtyEvent() {
+    if (_controller.isClosed) return;
+    if (_dirtyDebounceTimer?.isActive ?? false) {
+      return;
+    }
+    _dirtyDebounceTimer = Timer(const Duration(milliseconds: 350), () {
       if (_controller.isClosed) return;
       _controller.add(const ProjectFolderChangeEvent.dirty());
     });

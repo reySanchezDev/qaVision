@@ -33,6 +33,9 @@ const double kFloatingWindowOuterPadding = 12;
 /// Franja visible que queda expuesta al acoplar la ventana fuera del borde.
 const double kFloatingDockPeek = 18;
 
+/// Ajuste visual del borde derecho para compensar el area visible de Windows.
+const double kFloatingDockPeekRight = 12;
+
 const int _kFloatingStandardButtonCount =
     kFloatingLeftEdgeActionCount +
     kFloatingQuickAccessCount +

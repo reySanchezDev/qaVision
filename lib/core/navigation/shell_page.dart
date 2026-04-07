@@ -407,22 +407,25 @@ class _ShellPageState extends State<ShellPage>
     }
 
     final size = state.windowSize;
+    final dockPeek = state.dockEdge == FloatingDockEdge.right
+        ? kFloatingDockPeekRight
+        : kFloatingDockPeek;
     return switch (state.dockEdge) {
       FloatingDockEdge.left => Offset(
-        state.position.dx + size.width - kFloatingDockPeek,
+        state.position.dx + size.width - dockPeek,
         state.position.dy,
       ),
       FloatingDockEdge.right => Offset(
-        state.position.dx - size.width + kFloatingDockPeek,
+        state.position.dx - size.width + dockPeek,
         state.position.dy,
       ),
       FloatingDockEdge.top => Offset(
         state.position.dx,
-        state.position.dy + size.height - kFloatingDockPeek,
+        state.position.dy + size.height - dockPeek,
       ),
       FloatingDockEdge.bottom => Offset(
         state.position.dx,
-        state.position.dy - size.height + kFloatingDockPeek,
+        state.position.dy - size.height + dockPeek,
       ),
     };
   }
@@ -621,7 +624,8 @@ class _DockImpactPainter extends CustomPainter {
 
   double _visibleSpan(Size size) {
     return switch (edge) {
-      FloatingDockEdge.left || FloatingDockEdge.right => kFloatingDockPeek,
+      FloatingDockEdge.left => kFloatingDockPeek,
+      FloatingDockEdge.right => kFloatingDockPeekRight,
       FloatingDockEdge.top => kFloatingDockPeek,
       FloatingDockEdge.bottom => 0,
     };

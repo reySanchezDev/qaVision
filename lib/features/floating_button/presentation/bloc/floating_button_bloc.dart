@@ -603,7 +603,9 @@ class FloatingButtonBloc
     final minY = bounds.top;
     final maxX = math.max(minX, bounds.right - size.width);
     final maxY = math.max(minY, bounds.bottom - size.height);
-    const peek = kFloatingDockPeek;
+    final peek = edge == FloatingDockEdge.right
+        ? kFloatingDockPeekRight
+        : kFloatingDockPeek;
 
     return switch (edge) {
       FloatingDockEdge.left => Offset(
