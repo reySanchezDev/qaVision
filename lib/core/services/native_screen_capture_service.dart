@@ -18,22 +18,32 @@ class NativeScreenCaptureService {
       throw UnsupportedError('NativeScreenCaptureService solo soporta Windows');
     }
 
-    final frame = _capturePrimaryScreen();
+    final frame = _captureVirtualDesktop();
     var image = _bgraToImage(frame.width, frame.height, frame.bytes);
 
     if (region != null) {
-      image = _cropSafe(image, region);
+      image = _cropSafe(
+        image,
+        Rect.fromLTWH(
+          region.left - frame.originX,
+          region.top - frame.originY,
+          region.width,
+          region.height,
+        ),
+      );
     }
 
     // Guardamos directamente como JPG para evitar doble codificación PNG→JPG.
     return Uint8List.fromList(img.encodePng(image));
   }
 
-  _ScreenFrame _capturePrimaryScreen() {
-    final width = GetSystemMetrics(SM_CXSCREEN);
-    final height = GetSystemMetrics(SM_CYSCREEN);
+  _ScreenFrame _captureVirtualDesktop() {
+    final originX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    final originY = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    final width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    final height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
     if (width <= 0 || height <= 0) {
-      throw Exception('No se pudo obtener tamano de pantalla');
+      throw Exception('No se pudo obtener tamano del escritorio virtual');
     }
 
     final screenDc = GetDC(NULL);
@@ -62,8 +72,8 @@ class NativeScreenCaptureService {
       width,
       height,
       screenDc,
-      0,
-      0,
+      originX,
+      originY,
       SRCCOPY | CAPTUREBLT,
     );
 
@@ -75,7 +85,7 @@ class NativeScreenCaptureService {
       throw Exception('BitBlt fallo al capturar pantalla');
     }
 
-    _drawMouseCursor(memDc);
+    _drawMouseCursor(memDc, originX: originX, originY: originY);
 
     final bmi = calloc<BITMAPINFO>();
     final pixels = calloc<Uint8>(width * height * 4);
@@ -101,7 +111,13 @@ class NativeScreenCaptureService {
       }
 
       final bytes = Uint8List.fromList(pixels.asTypedList(width * height * 4));
-      return _ScreenFrame(width: width, height: height, bytes: bytes);
+      return _ScreenFrame(
+        originX: originX.toDouble(),
+        originY: originY.toDouble(),
+        width: width,
+        height: height,
+        bytes: bytes,
+      );
     } finally {
       calloc
         ..free(pixels)
@@ -145,7 +161,11 @@ class NativeScreenCaptureService {
     return img.copyCrop(source, x: x, y: y, width: w, height: h);
   }
 
-  void _drawMouseCursor(int targetDc) {
+  void _drawMouseCursor(
+    int targetDc, {
+    required int originX,
+    required int originY,
+  }) {
     final cursorInfo = calloc<CURSORINFO>();
     try {
       cursorInfo.ref.cbSize = sizeOf<CURSORINFO>();
@@ -154,7 +174,12 @@ class NativeScreenCaptureService {
       if (cursorInfo.ref.flags != CURSOR_SHOWING) return;
 
       final point = cursorInfo.ref.ptScreenPos;
-      DrawIcon(targetDc, point.x, point.y, cursorInfo.ref.hCursor);
+      DrawIcon(
+        targetDc,
+        point.x - originX,
+        point.y - originY,
+        cursorInfo.ref.hCursor,
+      );
     } finally {
       calloc.free(cursorInfo);
     }
@@ -163,11 +188,15 @@ class NativeScreenCaptureService {
 
 class _ScreenFrame {
   const _ScreenFrame({
+    required this.originX,
+    required this.originY,
     required this.width,
     required this.height,
     required this.bytes,
   });
 
+  final double originX;
+  final double originY;
   final int width;
   final int height;
   final Uint8List bytes;

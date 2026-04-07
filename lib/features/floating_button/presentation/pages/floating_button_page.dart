@@ -16,6 +16,7 @@ import 'package:qavision/features/floating_button/presentation/bloc/floating_but
 import 'package:qavision/features/floating_button/presentation/bloc/floating_button_event.dart';
 import 'package:qavision/features/floating_button/presentation/bloc/floating_button_state.dart';
 import 'package:qavision/features/floating_button/presentation/constants/floating_window_metrics.dart';
+import 'package:qavision/features/floating_button/presentation/utils/virtual_desktop_overlay_metrics.dart';
 import 'package:qavision/features/projects/domain/entities/project_entity.dart';
 import 'package:qavision/features/video/domain/entities/video_recording_target.dart';
 import 'package:screen_retriever/screen_retriever.dart';
@@ -49,6 +50,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
   bool _folderPickerOpen = false;
   Completer<_RegionSelectionDialogResult?>? _regionSelectionCompleter;
   Completer<_VideoTargetChoice?>? _videoTargetCompleter;
+  Rect? _pendingVideoTargetAnchorBounds;
   int? _videoCountdownValue;
   String? _videoCountdownLabel;
   bool _isVideoBusy = false;
@@ -541,8 +543,8 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
   }) async {
     if (mounted) {
       context.read<FloatingButtonBloc>().add(
-            FloatingButtonVideoRecordingStarted(position: hudPosition),
-          );
+        FloatingButtonVideoRecordingStarted(position: hudPosition),
+      );
     }
 
     await windowManager.setResizable(false);
@@ -600,6 +602,97 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
     return Offset(clampedLeft.toDouble(), top);
   }
 
+  Future<Rect> _resolveDisplayBoundsForPosition(Offset position) async {
+    final displays = await screenRetriever.getAllDisplays();
+    if (displays.isEmpty) {
+      final display = await screenRetriever.getPrimaryDisplay();
+      return _displayBounds(display);
+    }
+
+    final nearest = displays.reduce((best, candidate) {
+      final bestDistance = _distanceToRect(position, _displayBounds(best));
+      final candidateDistance = _distanceToRect(
+        position,
+        _displayBounds(candidate),
+      );
+      return candidateDistance < bestDistance ? candidate : best;
+    });
+
+    return _displayBounds(nearest);
+  }
+
+  Rect _displayBounds(Display display) {
+    final origin = display.visiblePosition ?? Offset.zero;
+    final size = display.visibleSize ?? display.size;
+    return Rect.fromLTWH(origin.dx, origin.dy, size.width, size.height);
+  }
+
+  double _distanceToRect(Offset point, Rect rect) {
+    if (rect.contains(point)) {
+      return 0;
+    }
+
+    final dx = point.dx < rect.left
+        ? rect.left - point.dx
+        : point.dx > rect.right
+        ? point.dx - rect.right
+        : 0.0;
+    final dy = point.dy < rect.top
+        ? rect.top - point.dy
+        : point.dy > rect.bottom
+        ? point.dy - rect.bottom
+        : 0.0;
+    return (dx * dx) + (dy * dy);
+  }
+
+  Rect _resolveAnchorRectForSelection({
+    required Rect selectedRect,
+    required Offset overlayOrigin,
+    required List<Display> displays,
+  }) {
+    if (displays.isEmpty) {
+      return Rect.fromLTWH(
+        overlayOrigin.dx,
+        overlayOrigin.dy,
+        selectedRect.width,
+        selectedRect.height,
+      );
+    }
+
+    final selectionCenter = Offset(
+      overlayOrigin.dx + selectedRect.center.dx,
+      overlayOrigin.dy + selectedRect.center.dy,
+    );
+    final nearest = displays.reduce((best, candidate) {
+      final bestDistance = _distanceToRect(
+        selectionCenter,
+        _displayBounds(best),
+      );
+      final candidateDistance = _distanceToRect(
+        selectionCenter,
+        _displayBounds(candidate),
+      );
+      return candidateDistance < bestDistance ? candidate : best;
+    });
+    return _displayBounds(nearest);
+  }
+
+  Future<VirtualDesktopOverlayMetrics>
+  _resolveVirtualDesktopOverlayMetrics() async {
+    final devicePixelRatio = windowManager.getDevicePixelRatio();
+    final physicalBounds = Rect.fromLTWH(
+      GetSystemMetrics(SM_XVIRTUALSCREEN).toDouble(),
+      GetSystemMetrics(SM_YVIRTUALSCREEN).toDouble(),
+      GetSystemMetrics(SM_CXVIRTUALSCREEN).toDouble(),
+      GetSystemMetrics(SM_CYVIRTUALSCREEN).toDouble(),
+    );
+
+    return buildVirtualDesktopOverlayMetrics(
+      physicalBounds: physicalBounds,
+      devicePixelRatio: devicePixelRatio,
+    );
+  }
+
   Future<_VideoTargetChoice?> _requestVideoTargetSelectionOverlay(
     FloatingButtonState state,
   ) async {
@@ -607,14 +700,16 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
     final availableDisplays = displays.isEmpty
         ? <Display>[await screenRetriever.getPrimaryDisplay()]
         : displays;
-    final overlayDisplay = await screenRetriever.getPrimaryDisplay();
-    final overlaySize = overlayDisplay.size;
-    final overlayOrigin = overlayDisplay.visiblePosition ?? Offset.zero;
+    final overlayMetrics = await _resolveVirtualDesktopOverlayMetrics();
+    final overlaySize = overlayMetrics.logicalSize;
+    final overlayOrigin = overlayMetrics.logicalOrigin;
+    final anchorBounds = await _resolveDisplayBoundsForPosition(state.position);
     final completer = Completer<_VideoTargetChoice?>();
     _VideoTargetChoice? selectedChoice;
     var shouldRestoreWindow = true;
     _videoTargetCompleter = completer;
     _pendingVideoDisplays = availableDisplays;
+    _pendingVideoTargetAnchorBounds = anchorBounds;
     if (mounted) {
       context.read<FloatingButtonBloc>().add(
         const FloatingButtonVideoOverlayStarted(),
@@ -643,6 +738,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
     } finally {
       _videoTargetCompleter = null;
       _pendingVideoDisplays = const <Display>[];
+      _pendingVideoTargetAnchorBounds = null;
       if (mounted) {
         setState(() {});
       }
@@ -681,8 +777,8 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
             label: 'Área personalizada',
             desktopRect: selection!.captureRect!,
           ),
-          overlayOrigin: selection.overlayOrigin ?? Offset.zero,
-          overlaySize: selection.overlaySize ?? const Size(1200, 800),
+          overlayOrigin: selection.anchorOrigin ?? Offset.zero,
+          overlaySize: selection.anchorSize ?? const Size(1200, 800),
         );
       } finally {
         if (mounted) {
@@ -728,11 +824,10 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
       );
     }
 
-    final display = await screenRetriever.getPrimaryDisplay();
-    final dpr =
-        display.scaleFactor?.toDouble() ?? windowManager.getDevicePixelRatio();
-    final overlaySize = display.size;
-    final overlayOrigin = display.visiblePosition ?? Offset.zero;
+    final overlayMetrics = await _resolveVirtualDesktopOverlayMetrics();
+    final overlaySize = overlayMetrics.logicalSize;
+    final overlayOrigin = overlayMetrics.logicalOrigin;
+    final displays = await screenRetriever.getAllDisplays();
 
     try {
       await windowManager.setPosition(overlayOrigin);
@@ -756,16 +851,19 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
         return const _RegionCaptureSelection();
       }
 
+      final anchorRect = _resolveAnchorRectForSelection(
+        selectedRect: selectedRect,
+        overlayOrigin: overlayOrigin,
+        displays: displays,
+      );
+
       return _RegionCaptureSelection(
-        captureRect: Rect.fromLTWH(
-          (overlayOrigin.dx + selectedRect.left) * dpr,
-          (overlayOrigin.dy + selectedRect.top) * dpr,
-          selectedRect.width * dpr,
-          selectedRect.height * dpr,
-        ),
+        captureRect: overlayMetrics.selectionToPhysicalRect(selectedRect),
         windowAlreadyHidden: false,
         overlayOrigin: overlayOrigin,
         overlaySize: overlaySize,
+        anchorOrigin: anchorRect.topLeft,
+        anchorSize: anchorRect.size,
       );
     } finally {
       _regionSelectionCompleter = null;
@@ -828,9 +926,9 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
   }
 
   Future<_RegionCaptureSelection?> _requestRegionCaptureRect(
-    FloatingButtonState state,
-    {bool useFullDisplayBounds = false, bool hideWindowAfterSelection = true,}
-  ) async {
+    FloatingButtonState state, {
+    bool hideWindowAfterSelection = true,
+  }) async {
     final completer = Completer<_RegionSelectionDialogResult?>();
     _regionSelectionCompleter = completer;
 
@@ -838,16 +936,9 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
       const FloatingButtonRegionSelectionStarted(),
     );
 
-    final display = await screenRetriever.getPrimaryDisplay();
-    final dpr =
-        display.scaleFactor?.toDouble() ?? windowManager.getDevicePixelRatio();
-
-    final overlaySize = useFullDisplayBounds
-        ? display.size
-        : (display.visibleSize ?? display.size);
-    final overlayOrigin = useFullDisplayBounds
-        ? (display.visiblePosition ?? Offset.zero)
-        : (display.visiblePosition ?? Offset.zero);
+    final overlayMetrics = await _resolveVirtualDesktopOverlayMetrics();
+    final overlaySize = overlayMetrics.logicalSize;
+    final overlayOrigin = overlayMetrics.logicalOrigin;
 
     try {
       await windowManager.setPosition(overlayOrigin);
@@ -883,12 +974,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
       }
 
       return _RegionCaptureSelection(
-        captureRect: Rect.fromLTWH(
-          (overlayOrigin.dx + selectedRect.left) * dpr,
-          (overlayOrigin.dy + selectedRect.top) * dpr,
-          selectedRect.width * dpr,
-          selectedRect.height * dpr,
-        ),
+        captureRect: overlayMetrics.selectionToPhysicalRect(selectedRect),
         windowAlreadyHidden: windowAlreadyHidden,
         overlayOrigin: overlayOrigin,
         overlaySize: overlaySize,
@@ -945,90 +1031,95 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
       builder: (context, _) {
         return BlocBuilder<FloatingButtonBloc, FloatingButtonState>(
           builder: (context, state) {
-        if (_videoTargetCompleter != null) {
-          final displays = _pendingVideoDisplays;
-          return _VideoTargetSelectionSurface(
-            displays: displays,
-            onSelected: _completeVideoTargetSelection,
-          );
-        }
-
-        if (state.isRegionSelecting) {
-          return _RegionSelectionSurface(
-            onCompleted: _completeRegionSelection,
-          );
-        }
-
-        if (_videoCountdownValue != null) {
-          return _VideoCountdownSurface(
-            countdown: _videoCountdownValue!,
-            label: _videoCountdownLabel ?? 'Preparando grabación',
-          );
-        }
-
-        if (state.isVideoRecordingHud || _videoRuntime.isHudVisible || _isVideoRecording) {
-          return AnimatedBuilder(
-            animation: _videoRuntime,
-            builder: (context, _) {
-              return _VideoRecordingHud(
-                elapsed: _videoRuntime.elapsed,
-                isPaused: _videoRuntime.isPaused,
-                isBusy: _videoRuntime.isBusy || _isVideoBusy,
-                onPauseToggle: _toggleVideoPause,
-                onStop: _stopVideoRecording,
+            if (_videoTargetCompleter != null) {
+              final displays = _pendingVideoDisplays;
+              return _VideoTargetSelectionSurface(
+                displays: displays,
+                anchorBounds:
+                    _pendingVideoTargetAnchorBounds ??
+                    const Rect.fromLTWH(0, 0, 1200, 800),
+                onSelected: _completeVideoTargetSelection,
               );
-            },
-          );
-        }
+            }
 
-        final quickProjectSlots = _resolveQuickProjectSlots(state);
+            if (state.isRegionSelecting) {
+              return _RegionSelectionSurface(
+                onCompleted: _completeRegionSelection,
+              );
+            }
 
-        return Material(
-          color: Colors.transparent,
-          child: GestureDetector(
-            onPanStart: (_) {
-              widget.onDragStarted?.call();
-              unawaited(windowManager.startDragging());
-            },
-            behavior: HitTestBehavior.opaque,
-            child: TooltipVisibility(
-              visible: false,
-              child: state.isVertical
-                  ? _VerticalFloatingContent(
-                      state: state,
-                      isVideoRecording: _isVideoRecording,
-                      isVideoBusy: _isVideoBusy,
-                      videoElapsed: _videoRuntime.elapsed,
-                      quickProjectSlots: quickProjectSlots,
-                      onOpenViewerTap: () {
-                        unawaited(AppRouter.openViewer());
-                      },
-                      onQuickSlotPrimaryTap: _handleQuickSlotPrimaryTap,
-                      onQuickSlotSecondaryTap: (slotIndex) {
-                        unawaited(_handleQuickSlotSecondaryTap(slotIndex));
-                      },
-                      onCaptureTap: () => _handleCaptureTap(state),
-                      onModeTap: (mode) => _handleModeTap(mode, state),
-                    )
-                  : _HorizontalFloatingContent(
-                      state: state,
-                      isVideoRecording: _isVideoRecording,
-                      isVideoBusy: _isVideoBusy,
-                      videoElapsed: _videoRuntime.elapsed,
-                      quickProjectSlots: quickProjectSlots,
-                      onOpenViewerTap: () {
-                        unawaited(AppRouter.openViewer());
-                      },
-                      onQuickSlotPrimaryTap: _handleQuickSlotPrimaryTap,
-                      onQuickSlotSecondaryTap: (slotIndex) {
-                        unawaited(_handleQuickSlotSecondaryTap(slotIndex));
-                      },
-                      onCaptureTap: () => _handleCaptureTap(state),
-                      onModeTap: (mode) => _handleModeTap(mode, state),
-                    ),
-            ),
-          ),
-        );
+            if (_videoCountdownValue != null) {
+              return _VideoCountdownSurface(
+                countdown: _videoCountdownValue!,
+                label: _videoCountdownLabel ?? 'Preparando grabación',
+              );
+            }
+
+            if (state.isVideoRecordingHud ||
+                _videoRuntime.isHudVisible ||
+                _isVideoRecording) {
+              return AnimatedBuilder(
+                animation: _videoRuntime,
+                builder: (context, _) {
+                  return _VideoRecordingHud(
+                    elapsed: _videoRuntime.elapsed,
+                    isPaused: _videoRuntime.isPaused,
+                    isBusy: _videoRuntime.isBusy || _isVideoBusy,
+                    onPauseToggle: _toggleVideoPause,
+                    onStop: _stopVideoRecording,
+                  );
+                },
+              );
+            }
+
+            final quickProjectSlots = _resolveQuickProjectSlots(state);
+
+            return Material(
+              color: Colors.transparent,
+              child: GestureDetector(
+                onPanStart: (_) {
+                  widget.onDragStarted?.call();
+                  unawaited(windowManager.startDragging());
+                },
+                behavior: HitTestBehavior.opaque,
+                child: TooltipVisibility(
+                  visible: false,
+                  child: state.isVertical
+                      ? _VerticalFloatingContent(
+                          state: state,
+                          isVideoRecording: _isVideoRecording,
+                          isVideoBusy: _isVideoBusy,
+                          videoElapsed: _videoRuntime.elapsed,
+                          quickProjectSlots: quickProjectSlots,
+                          onOpenViewerTap: () {
+                            unawaited(AppRouter.openViewer());
+                          },
+                          onQuickSlotPrimaryTap: _handleQuickSlotPrimaryTap,
+                          onQuickSlotSecondaryTap: (slotIndex) {
+                            unawaited(_handleQuickSlotSecondaryTap(slotIndex));
+                          },
+                          onCaptureTap: () => _handleCaptureTap(state),
+                          onModeTap: (mode) => _handleModeTap(mode, state),
+                        )
+                      : _HorizontalFloatingContent(
+                          state: state,
+                          isVideoRecording: _isVideoRecording,
+                          isVideoBusy: _isVideoBusy,
+                          videoElapsed: _videoRuntime.elapsed,
+                          quickProjectSlots: quickProjectSlots,
+                          onOpenViewerTap: () {
+                            unawaited(AppRouter.openViewer());
+                          },
+                          onQuickSlotPrimaryTap: _handleQuickSlotPrimaryTap,
+                          onQuickSlotSecondaryTap: (slotIndex) {
+                            unawaited(_handleQuickSlotSecondaryTap(slotIndex));
+                          },
+                          onCaptureTap: () => _handleCaptureTap(state),
+                          onModeTap: (mode) => _handleModeTap(mode, state),
+                        ),
+                ),
+              ),
+            );
           },
         );
       },
@@ -1666,9 +1757,7 @@ class _ModeIconButton extends StatelessWidget {
           width: _kControlButtonSize,
           height: _kControlButtonSize,
           decoration: BoxDecoration(
-            color: selected
-                ? const Color(0xFF2F78E0)
-                : const Color(0xC825384A),
+            color: selected ? const Color(0xFF2F78E0) : const Color(0xC825384A),
             shape: BoxShape.circle,
             border: Border.all(
               color: highlighted
@@ -1682,9 +1771,7 @@ class _ModeIconButton extends StatelessWidget {
           child: Icon(
             icon,
             size: _kControlIconSize,
-            color: selected
-                ? const Color(0xFFF8FBFF)
-                : const Color(0xFFE6EEF6),
+            color: selected ? const Color(0xFFF8FBFF) : const Color(0xFFE6EEF6),
           ),
         ),
       ),
@@ -1846,6 +1933,8 @@ class _RegionCaptureSelection {
     this.windowAlreadyHidden = false,
     this.overlayOrigin,
     this.overlaySize,
+    this.anchorOrigin,
+    this.anchorSize,
   });
 
   final Rect? captureRect;
@@ -1853,6 +1942,8 @@ class _RegionCaptureSelection {
   final bool windowAlreadyHidden;
   final Offset? overlayOrigin;
   final Size? overlaySize;
+  final Offset? anchorOrigin;
+  final Size? anchorSize;
 }
 
 class _RegionSelectionDialogResult {
@@ -1989,8 +2080,7 @@ class _VideoTargetDialog extends StatelessWidget {
                   child: _VideoTargetOptionTile(
                     icon: Icons.monitor,
                     title: label,
-                    subtitle:
-                        '${size.width.round()} x ${size.height.round()}',
+                    subtitle: '${size.width.round()} x ${size.height.round()}',
                     onTap: () {
                       Navigator.of(context).pop(
                         _VideoTargetChoice.display(
@@ -2013,10 +2103,12 @@ class _VideoTargetDialog extends StatelessWidget {
 class _VideoTargetSelectionSurface extends StatelessWidget {
   const _VideoTargetSelectionSurface({
     required this.displays,
+    required this.anchorBounds,
     required this.onSelected,
   });
 
   final List<Display> displays;
+  final Rect anchorBounds;
   final ValueChanged<_VideoTargetChoice?> onSelected;
 
   @override
@@ -2026,116 +2118,134 @@ class _VideoTargetSelectionSurface extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onSecondaryTap: () => onSelected(null),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: const Color(0xEE161C24),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.08),
-                ),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x55000000),
-                    blurRadius: 28,
-                    offset: Offset(0, 14),
+        child: Stack(
+          children: [
+            Positioned(
+              left: anchorBounds.left,
+              top:
+                  anchorBounds.top +
+                  ((anchorBounds.height - 420) / 2).clamp(24.0, 220.0),
+              width: anchorBounds.width,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: anchorBounds.width.clamp(320.0, 460.0),
                   ),
-                ],
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Grabar video',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xEE161C24),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.08),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Elige si vas a grabar una región o una pantalla completa.',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.74),
-                        fontSize: 13,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _VideoTargetOptionTile(
-                      icon: Icons.crop_free,
-                      title: 'Área personalizada',
-                      subtitle: 'Selecciona manualmente la zona a grabar',
-                      onTap: () {
-                        onSelected(const _VideoTargetChoice.region());
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    ...displays.asMap().entries.map((entry) {
-                      final display = entry.value;
-                      final size = display.size;
-                      final label = 'Pantalla ${entry.key + 1}';
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _VideoTargetOptionTile(
-                          icon: Icons.monitor,
-                          title: label,
-                          subtitle:
-                              '${size.width.round()} x ${size.height.round()} · Próximamente',
-                          badgeLabel: 'En construcción',
-                          enabled: false,
-                          onTap: () {},
-                        ),
-                      );
-                    }),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Text(
-                          'Clic derecho para cancelar',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.52),
-                            fontSize: 11,
-                          ),
-                        ),
-                        const Spacer(),
-                        TextButton.icon(
-                          onPressed: () => onSelected(null),
-                          style: TextButton.styleFrom(
-                            foregroundColor: Colors.white.withValues(alpha: 0.88),
-                            backgroundColor: const Color(0xFF1B2530),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              side: BorderSide(
-                                color: Colors.white.withValues(alpha: 0.08),
-                              ),
-                            ),
-                          ),
-                          icon: const Icon(Icons.close_rounded, size: 16),
-                          label: const Text(
-                            'Cancelar',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x55000000),
+                          blurRadius: 28,
+                          offset: Offset(0, 14),
                         ),
                       ],
                     ),
-                  ],
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Grabar video',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Elige si vas a grabar una región o una pantalla completa.',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.74),
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          _VideoTargetOptionTile(
+                            icon: Icons.crop_free,
+                            title: 'Área personalizada',
+                            subtitle: 'Selecciona manualmente la zona a grabar',
+                            onTap: () {
+                              onSelected(const _VideoTargetChoice.region());
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          ...displays.asMap().entries.map((entry) {
+                            final display = entry.value;
+                            final size = display.size;
+                            final label = 'Pantalla ${entry.key + 1}';
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _VideoTargetOptionTile(
+                                icon: Icons.monitor,
+                                title: label,
+                                subtitle:
+                                    '${size.width.round()} x ${size.height.round()} · Próximamente',
+                                badgeLabel: 'En construcción',
+                                enabled: false,
+                                onTap: () {},
+                              ),
+                            );
+                          }),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Text(
+                                'Clic derecho para cancelar',
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.52),
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const Spacer(),
+                              TextButton.icon(
+                                onPressed: () => onSelected(null),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: Colors.white.withValues(
+                                    alpha: 0.88,
+                                  ),
+                                  backgroundColor: const Color(0xFF1B2530),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    side: BorderSide(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.08,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.close_rounded, size: 16),
+                                label: const Text(
+                                  'Cancelar',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -2176,9 +2286,7 @@ class _VideoTargetOptionTile extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            color: enabled
-                ? const Color(0xFF0F141B)
-                : const Color(0xFF131920),
+            color: enabled ? const Color(0xFF0F141B) : const Color(0xFF131920),
             border: Border.all(
               color: Colors.white.withValues(alpha: enabled ? 0.08 : 0.05),
             ),
