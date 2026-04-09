@@ -18,6 +18,7 @@ import 'package:qavision/core/services/clipboard_service.dart';
 class _InMemoryProjectRepository implements IProjectRepository {
   _InMemoryProjectRepository(this._projects);
 
+  static const int _maxProjects = 6;
   List<ProjectEntity> _projects;
 
   @override
@@ -62,8 +63,8 @@ class _InMemoryProjectRepository implements IProjectRepository {
       usageCount: 1,
       lastUsedAt: now,
     );
-    if (_projects.length >= 3) {
-      _projects.removeAt(_resolveLeastUsedIndex(_projects));
+    if (_projects.length >= _maxProjects) {
+      return null;
     }
     _projects = <ProjectEntity>[
       ..._projects.map((project) => project.copyWith(isDefault: false)),
@@ -92,14 +93,14 @@ class _InMemoryProjectRepository implements IProjectRepository {
       lastUsedAt: now,
     );
 
-    final index = slotIndex.clamp(0, 2);
+    final index = slotIndex.clamp(0, _maxProjects - 1);
     if (index < _projects.length) {
       final replacedDefault = _projects[index].isDefault;
       _projects[index] = project.copyWith(isDefault: replacedDefault);
-    } else if (_projects.length < 3) {
+    } else if (_projects.length < _maxProjects) {
       _projects.add(project);
     } else {
-      _projects[2] = project;
+      _projects[_maxProjects - 1] = project;
     }
 
     if (_projects.where((item) => item.isDefault).isEmpty &&
@@ -196,6 +197,16 @@ class _InMemoryCaptureRepository implements ICaptureRepository {
   Future<void> saveCapture(CaptureEntity capture) async {
     _captures.add(capture);
   }
+
+  @override
+  Future<void> updateCapture(CaptureEntity capture) async {
+    final index = _captures.indexWhere((item) => item.id == capture.id);
+    if (index < 0) {
+      _captures.add(capture);
+      return;
+    }
+    _captures[index] = capture;
+  }
 }
 
 Future<void> _drainQueue() async {
@@ -245,6 +256,7 @@ void main() {
         ),
         captureRepository: _InMemoryCaptureRepository(),
         clipboardService: ClipboardService(),
+        fileSystemService: FileSystemService(),
       );
       floatingBloc = FloatingButtonBloc(
         projectRepository: projectRepository,
@@ -289,7 +301,7 @@ void main() {
       await _drainQueue();
 
       expect(floatingBloc.state.dockEdge, FloatingDockEdge.right);
-      expect(floatingBloc.state.position.dx, 1280 - kFloatingDockPeek);
+      expect(floatingBloc.state.position.dx, 1280 - kFloatingDockPeekRight);
       expect(floatingBloc.state.position.dy, 720 - kFloatingVerticalHeight);
     });
 
@@ -362,5 +374,102 @@ void main() {
       expect(floatingBloc.state.captureMode, FloatingCaptureMode.region);
       expect(floatingBloc.state.isClipSessionActive, isFalse);
     });
+
+    test(
+      'reemplaza el slot rapido aun cuando el almacenamiento ya llego al maximo',
+      () async {
+        projectRepository = _InMemoryProjectRepository(
+          <ProjectEntity>[
+            const ProjectEntity(
+              id: 'p1',
+              name: 'General2',
+              folderPath: 'C:/tmp/qavision/General2',
+              alias: 'GEN',
+              color: 0xFF1E88E5,
+              isDefault: true,
+            ),
+            const ProjectEntity(
+              id: 'p2',
+              name: 'Prestazo',
+              folderPath: 'C:/tmp/qavision/Prestazo',
+              alias: 'PRE',
+              color: 0xFF43A047,
+            ),
+            const ProjectEntity(
+              id: 'p3',
+              name: 'Papeleria',
+              folderPath: 'C:/tmp/qavision/Papeleria',
+              alias: 'PAP',
+              color: 0xFF00897B,
+            ),
+            const ProjectEntity(
+              id: 'p4',
+              name: 'Legacy4',
+              folderPath: 'C:/tmp/qavision/Legacy4',
+              alias: 'L4',
+              color: 0xFF8E24AA,
+            ),
+            const ProjectEntity(
+              id: 'p5',
+              name: 'Legacy5',
+              folderPath: 'C:/tmp/qavision/Legacy5',
+              alias: 'L5',
+              color: 0xFF546E7A,
+            ),
+            const ProjectEntity(
+              id: 'p6',
+              name: 'Legacy6',
+              folderPath: 'C:/tmp/qavision/Legacy6',
+              alias: 'L6',
+              color: 0xFFFB8C00,
+            ),
+          ],
+        );
+
+        await floatingBloc.close();
+        await projectBloc.close();
+        await captureBloc.close();
+
+        projectBloc = ProjectBloc(repository: projectRepository);
+        captureBloc = CaptureBloc(
+          captureService: CaptureService(
+            fileSystemService: FileSystemService(),
+            nativeCaptureService: NativeScreenCaptureService(),
+          ),
+          captureRepository: _InMemoryCaptureRepository(),
+          clipboardService: ClipboardService(),
+          fileSystemService: FileSystemService(),
+        );
+        floatingBloc = FloatingButtonBloc(
+          projectRepository: projectRepository,
+          projectBloc: projectBloc,
+          captureBloc: captureBloc,
+        );
+
+        floatingBloc.add(const FloatingButtonStarted());
+        await _drainQueue();
+
+        floatingBloc.add(
+          const FloatingButtonQuickSlotFolderSelected(
+            slotIndex: 1,
+            folderPath: 'C:/tmp/qavision/NuevoSlot',
+          ),
+        );
+        await _drainQueue();
+
+        expect(
+          floatingBloc.state.projects[1].folderPath,
+          'C:/tmp/qavision/NuevoSlot',
+        );
+        expect(
+          floatingBloc.state.quickProjectIds[1],
+          floatingBloc.state.projects[1].id,
+        );
+        expect(
+          floatingBloc.state.activeProject?.folderPath,
+          'C:/tmp/qavision/NuevoSlot',
+        );
+      },
+    );
   });
 }

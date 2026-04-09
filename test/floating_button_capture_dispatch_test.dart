@@ -164,6 +164,16 @@ class _InMemoryCaptureRepository implements ICaptureRepository {
   Future<void> saveCapture(CaptureEntity capture) async {
     _captures.add(capture);
   }
+
+  @override
+  Future<void> updateCapture(CaptureEntity capture) async {
+    final index = _captures.indexWhere((item) => item.id == capture.id);
+    if (index < 0) {
+      _captures.add(capture);
+      return;
+    }
+    _captures[index] = capture;
+  }
 }
 
 class _SpyCaptureBloc extends CaptureBloc {
@@ -175,6 +185,7 @@ class _SpyCaptureBloc extends CaptureBloc {
         ),
         captureRepository: _InMemoryCaptureRepository(),
         clipboardService: ClipboardService(),
+        fileSystemService: FileSystemService(),
       );
 
   final List<CaptureRequested> capturedRequests = <CaptureRequested>[];

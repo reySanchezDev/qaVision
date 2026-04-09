@@ -18,6 +18,7 @@ final class CaptureRequested extends CaptureEvent {
   const CaptureRequested({
     required this.project,
     this.captureRect,
+    this.fileNameOverride,
     this.forceSilent = false,
     this.restoreFloatingWindow = true,
     this.windowAlreadyHidden = false,
@@ -29,6 +30,9 @@ final class CaptureRequested extends CaptureEvent {
   /// Rectángulo de captura en coordenadas de pantalla.
   /// Si es null, captura pantalla completa.
   final Rect? captureRect;
+
+  /// Nombre base solicitado para el archivo de la captura.
+  final String? fileNameOverride;
 
   /// Si se debe forzar el modo silencioso (ej. Modo Clip).
   final bool forceSilent;
@@ -43,10 +47,29 @@ final class CaptureRequested extends CaptureEvent {
   List<Object?> get props => [
     project,
     captureRect,
+    fileNameOverride,
     forceSilent,
     restoreFloatingWindow,
     windowAlreadyHidden,
   ];
+}
+
+/// Solicita renombrar una captura ya guardada en disco.
+final class CaptureRenameRequested extends CaptureEvent {
+  /// Crea una instancia de [CaptureRenameRequested].
+  const CaptureRenameRequested({
+    required this.capture,
+    required this.fileNameOverride,
+  });
+
+  /// Captura existente que se desea renombrar.
+  final CaptureEntity capture;
+
+  /// Nombre base solicitado para el archivo.
+  final String fileNameOverride;
+
+  @override
+  List<Object?> get props => [capture, fileNameOverride];
 }
 
 /// Notifica que la captura se completó con éxito.

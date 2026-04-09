@@ -87,6 +87,7 @@ void setupServiceLocator() {
         captureService: sl<CaptureService>(),
         captureRepository: sl<ICaptureRepository>(),
         clipboardService: sl<ClipboardService>(),
+        fileSystemService: sl<FileSystemService>(),
       ),
     )
     ..registerLazySingleton<ViewerBloc>(

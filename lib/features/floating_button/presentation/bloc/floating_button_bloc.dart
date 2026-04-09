@@ -141,7 +141,10 @@ class FloatingButtonBloc
     final folderPath = event.folderPath.trim();
     if (folderPath.isEmpty) return;
 
-    final selected = await _projectRepo.addOrActivateFolder(folderPath);
+    final selected = await _projectRepo.replaceProjectAt(
+      slotIndex: event.slotIndex,
+      folderPath: folderPath,
+    );
     final projects = await _projectRepo.getProjects();
 
     if (projects.isEmpty) {
@@ -189,6 +192,7 @@ class FloatingButtonBloc
     _dispatchCapture(
       project: project,
       captureRect: event.captureRect,
+      fileNameOverride: event.fileNameOverride,
       forceSilent: false,
       restoreFloatingWindow: event.restoreFloatingWindow,
       windowAlreadyHidden: event.windowAlreadyHidden,
@@ -375,11 +379,13 @@ class FloatingButtonBloc
     required bool restoreFloatingWindow,
     required bool windowAlreadyHidden,
     Rect? captureRect,
+    String? fileNameOverride,
   }) {
     _captureBloc.add(
       CaptureRequested(
         project: project,
         captureRect: captureRect,
+        fileNameOverride: fileNameOverride,
         forceSilent: forceSilent,
         restoreFloatingWindow: restoreFloatingWindow,
         windowAlreadyHidden: windowAlreadyHidden,

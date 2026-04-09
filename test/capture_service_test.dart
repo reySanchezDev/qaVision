@@ -73,4 +73,46 @@ void main() {
       0x0A,
     ]));
   });
+
+  test('CaptureService respeta un nombre explicito para la captura', () async {
+    final tempDir = await Directory.systemTemp.createTemp('qavision_capture_');
+    addTearDown(() async {
+      if (tempDir.existsSync()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    final service = CaptureService(
+      fileSystemService: FileSystemService(),
+      nativeCaptureService: _FakeNativeScreenCaptureService(
+        Uint8List.fromList(<int>[
+          0x89,
+          0x50,
+          0x4E,
+          0x47,
+          0x0D,
+          0x0A,
+          0x1A,
+          0x0A,
+          0x00,
+        ]),
+      ),
+    );
+
+    final path = await service.captureAndSave(
+      project: ProjectEntity(
+        id: 'p1',
+        name: 'General',
+        folderPath: tempDir.path,
+        alias: 'GEN',
+        color: 0xFF1E88E5,
+        isDefault: true,
+      ),
+      fileNameOverride: 'Pantalla-A2',
+    );
+
+    expect(path, isNotNull);
+    expect(path, contains('Pantalla-A2'));
+    expect(path, endsWith('.png'));
+  });
 }

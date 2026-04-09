@@ -26,6 +26,19 @@ class CaptureRepository implements ICaptureRepository {
   }
 
   @override
+  Future<void> updateCapture(CaptureEntity capture) async {
+    final history = await _loadHistory();
+    final index = history.indexWhere((item) => item.id == capture.id);
+    if (index < 0) {
+      history.insert(0, capture);
+    } else {
+      history[index] = capture;
+    }
+    final limitedHistory = history.take(50).toList();
+    await _saveHistory(limitedHistory);
+  }
+
+  @override
   Future<List<CaptureEntity>> getRecentCaptures({int limit = 10}) async {
     final history = await _loadHistory();
     return history.take(limit).toList();

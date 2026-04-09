@@ -41,12 +41,16 @@ final class FloatingButtonCaptureRequested extends FloatingButtonEvent {
   /// Crea una instancia de [FloatingButtonCaptureRequested].
   const FloatingButtonCaptureRequested({
     this.captureRect,
+    this.fileNameOverride,
     this.windowAlreadyHidden = false,
     this.restoreFloatingWindow = true,
   });
 
   /// Rectangulo de captura en coordenadas de pantalla.
   final Rect? captureRect;
+
+  /// Nombre base solicitado para el archivo de captura.
+  final String? fileNameOverride;
 
   /// Indica si la ventana ya fue ocultada antes de disparar la captura.
   final bool windowAlreadyHidden;
@@ -57,6 +61,7 @@ final class FloatingButtonCaptureRequested extends FloatingButtonEvent {
   @override
   List<Object?> get props => [
     captureRect,
+    fileNameOverride,
     windowAlreadyHidden,
     restoreFloatingWindow,
   ];

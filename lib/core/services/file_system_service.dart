@@ -51,6 +51,48 @@ class FileSystemService {
     return null;
   }
 
+  /// Renombra un archivo manteniendo su extension y evitando sobrescrituras.
+  Future<String?> renameFile(
+    String sourcePath, {
+    required String newBaseName,
+  }) async {
+    final sourceFile = File(sourcePath);
+    if (!sourceFile.existsSync()) {
+      return null;
+    }
+
+    final sanitizedBaseName = sanitizeFileName(
+      _fileNameWithoutExtension(newBaseName.trim()),
+    ).trim();
+    if (sanitizedBaseName.isEmpty) {
+      return null;
+    }
+
+    final extension = _fileExtension(sourcePath);
+    final requestedTargetPath =
+        '${sourceFile.parent.path}/$sanitizedBaseName$extension';
+    final normalizedSource = sourceFile.path.replaceAll(r'\', '/');
+    final normalizedRequested = requestedTargetPath.replaceAll(r'\', '/');
+    if (normalizedSource.toLowerCase() == normalizedRequested.toLowerCase()) {
+      return sourceFile.path;
+    }
+
+    final targetPath = _ensureUniqueFilename(requestedTargetPath);
+
+    final normalizedTarget = targetPath.replaceAll(r'\', '/');
+    if (normalizedSource.toLowerCase() == normalizedTarget.toLowerCase()) {
+      return sourceFile.path;
+    }
+
+    try {
+      final renamed = await sourceFile.rename(targetPath);
+      return renamed.path;
+    } on FileSystemException catch (e) {
+      debugPrint('Error al renombrar archivo: $e');
+      return null;
+    }
+  }
+
   /// Verifica si un directorio existe.
   Future<bool> directoryExists(String path) async {
     return Directory(path).existsSync();
@@ -201,7 +243,7 @@ class FileSystemService {
     }
 
     // Limpiar caracteres no válidos para Windows
-    return _sanitizeFileName(result);
+    return sanitizeFileName(result);
   }
 
   /// Genera el nombre por defecto si no hay máscara: YYYYMMDD_HHMMSS.
@@ -247,7 +289,7 @@ class FileSystemService {
   }
 
   /// Limpia caracteres no válidos para nombres de archivo en Windows.
-  String _sanitizeFileName(String name) {
+  String sanitizeFileName(String name) {
     var sanitized = name;
     for (final char in _invalidChars.split('')) {
       sanitized = sanitized.replaceAll(char, '_');

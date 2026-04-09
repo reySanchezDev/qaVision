@@ -7,10 +7,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:qavision/core/di/service_locator.dart';
 import 'package:qavision/core/navigation/app_router.dart';
+import 'package:qavision/core/widgets/app_button.dart';
 import 'package:qavision/core/services/video_recording_service.dart';
 import 'package:qavision/core/services/video_recording_runtime_service.dart';
 import 'package:qavision/core/widgets/app_text.dart';
+import 'package:qavision/core/widgets/app_text_field.dart';
 import 'package:qavision/features/capture/presentation/bloc/capture_bloc.dart';
+import 'package:qavision/features/capture/presentation/bloc/capture_event.dart';
 import 'package:qavision/features/capture/presentation/bloc/capture_state.dart';
 import 'package:qavision/features/floating_button/presentation/bloc/floating_button_bloc.dart';
 import 'package:qavision/features/floating_button/presentation/bloc/floating_button_event.dart';
@@ -30,6 +33,16 @@ const double _kControlIconSize = kFloatingControlIconSize;
 
 enum _ClipPointerAction { capture, stop }
 
+class _MouseButtonState {
+  const _MouseButtonState({
+    required this.isDown,
+    required this.wasPressed,
+  });
+
+  final bool isDown;
+  final bool wasPressed;
+}
+
 /// Cuerpo principal de la pantalla flotante.
 class FloatingButtonBody extends StatefulWidget {
   /// Crea [FloatingButtonBody].
@@ -48,6 +61,9 @@ class FloatingButtonBody extends StatefulWidget {
 class _FloatingButtonBodyState extends State<FloatingButtonBody> {
   bool _clipLoopRunning = false;
   bool _folderPickerOpen = false;
+  bool _isSystemClosing = false;
+  bool _showClipNamingTransition = false;
+  _ClipNamingSequence? _clipNamingSequence;
   Completer<_RegionSelectionDialogResult?>? _regionSelectionCompleter;
   Completer<_VideoTargetChoice?>? _videoTargetCompleter;
   Rect? _pendingVideoTargetAnchorBounds;
@@ -74,17 +90,31 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
     if (_clipLoopRunning) return;
 
     final floatingBloc = context.read<FloatingButtonBloc>();
+    final captureBloc = context.read<CaptureBloc>();
     if (!Platform.isWindows) {
       return;
     }
 
     _clipLoopRunning = true;
+    _clipNamingSequence = null;
     floatingBloc.add(const FloatingButtonClipSessionStarted());
     var clipWindowHidden = false;
-
-    VideoRecordingSession? startedSession;
+    var shouldShowClipFinishedDialog = false;
     try {
-      clipWindowHidden = await _hideWindowForClipSession();
+      final initialState = floatingBloc.state;
+      final clipSelection = await _requestRegionCaptureRect(initialState);
+      if (!mounted || clipSelection == null) {
+        return;
+      }
+      if (clipSelection.cancelledByRightClick ||
+          clipSelection.captureRect == null) {
+        return;
+      }
+
+      clipWindowHidden = clipSelection.windowAlreadyHidden;
+      if (!clipWindowHidden) {
+        clipWindowHidden = await _hideWindowForClipSession();
+      }
       await _waitUntilMouseReleased();
 
       while (mounted) {
@@ -96,29 +126,69 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
           break;
         }
 
+        _ClipCaptureNamingDecision? pendingDecision;
+        String? requestedName;
+        if (_clipNamingSequence != null) {
+          requestedName = _clipNamingSequence?.consumeCurrentName();
+        } else {
+          pendingDecision = await _requestClipCaptureNaming(currentState);
+          if (!mounted || pendingDecision == null) {
+            floatingBloc.add(const FloatingButtonClipSessionStopped());
+            break;
+          }
+          final explicitName = pendingDecision.fileName.trim();
+          if (explicitName.isNotEmpty) {
+            requestedName = explicitName;
+          }
+          await _prepareForClipPointerCapture();
+        }
+
         final action = await _waitForClipPointerAction(floatingBloc);
         if (!mounted || action == null) break;
 
         if (action == _ClipPointerAction.stop) {
+          shouldShowClipFinishedDialog = true;
+          await _dismissWindowsContextMenuAfterClipStop();
           floatingBloc.add(const FloatingButtonClipSessionStopped());
           break;
         }
 
+        captureBloc.add(const CaptureResetRequested());
         floatingBloc.add(
-          const FloatingButtonCaptureRequested(
+          FloatingButtonCaptureRequested(
+            captureRect: clipSelection.captureRect,
+            fileNameOverride: requestedName,
             windowAlreadyHidden: true,
             restoreFloatingWindow: false,
           ),
         );
 
-        final completed = await _waitForCaptureCompletion(floatingBloc);
-        if (!completed) {
+        final captureResult = await _waitForClipCaptureResult(floatingBloc);
+        if (!mounted || captureResult == null) {
           floatingBloc.add(const FloatingButtonClipSessionStopped());
           break;
         }
+
+        if (captureResult is CaptureError) {
+          floatingBloc.add(const FloatingButtonClipSessionStopped());
+          break;
+        }
+        if (captureResult is! CaptureSuccess) {
+          floatingBloc.add(const FloatingButtonClipSessionStopped());
+          break;
+        }
+
+        if (pendingDecision?.applyToRemaining ?? false) {
+          _clipNamingSequence = _ClipNamingSequence.fromBaseAndSeed(
+            baseName: pendingDecision!.baseName,
+            initialToken: pendingDecision.effectiveSequenceSeed,
+          );
+        }
+
         await _waitUntilMouseReleased();
       }
     } finally {
+      _clipNamingSequence = null;
       _clipLoopRunning = false;
       if (mounted && floatingBloc.state.isClipSessionActive) {
         floatingBloc.add(const FloatingButtonClipSessionStopped());
@@ -128,6 +198,9 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
         if (!isVisible) {
           await windowManager.show(inactive: true);
         }
+      }
+      if (shouldShowClipFinishedDialog && mounted) {
+        await _showClipSessionFinishedDialog(floatingBloc.state);
       }
     }
   }
@@ -161,6 +234,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
 
     var previousLeftDown = _isMouseButtonDown(VK_LBUTTON);
     var previousRightDown = _isMouseButtonDown(VK_RBUTTON);
+    var leftPressInProgress = false;
 
     while (mounted) {
       final state = floatingBloc.state;
@@ -169,20 +243,27 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
         return _ClipPointerAction.stop;
       }
 
-      final rightDown = _isMouseButtonDown(VK_RBUTTON);
-      final leftDown = _isMouseButtonDown(VK_LBUTTON);
+      final rightState = _mouseButtonState(VK_RBUTTON);
+      final leftState = _mouseButtonState(VK_LBUTTON);
+      final rightDown = rightState.isDown;
+      final leftDown = leftState.isDown;
 
-      if (rightDown && !previousRightDown) {
+      if ((rightDown && !previousRightDown) || rightState.wasPressed) {
         return _ClipPointerAction.stop;
       }
 
-      if (leftDown && !previousLeftDown) {
+      if ((leftDown && !previousLeftDown) || leftState.wasPressed) {
+        leftPressInProgress = true;
+      }
+
+      if (leftPressInProgress && !leftDown) {
+        await Future<void>.delayed(const Duration(milliseconds: 55));
         return _ClipPointerAction.capture;
       }
 
       previousRightDown = rightDown;
       previousLeftDown = leftDown;
-      await Future<void>.delayed(const Duration(milliseconds: 14));
+      await Future<void>.delayed(const Duration(milliseconds: 6));
     }
 
     return null;
@@ -192,42 +273,174 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
     return (GetAsyncKeyState(virtualKeyCode) & 0x8000) != 0;
   }
 
-  Future<bool> _waitForCaptureCompletion(
+  _MouseButtonState _mouseButtonState(int virtualKeyCode) {
+    final state = GetAsyncKeyState(virtualKeyCode);
+    return _MouseButtonState(
+      isDown: (state & 0x8000) != 0,
+      wasPressed: (state & 0x0001) != 0,
+    );
+  }
+
+  Future<CaptureState?> _waitForClipCaptureResult(
     FloatingButtonBloc floatingBloc,
   ) async {
     if (!Platform.isWindows) {
-      return true;
+      return const CaptureIdle();
     }
 
     final captureBloc = context.read<CaptureBloc>();
     var previousRightDown = _isMouseButtonDown(VK_RBUTTON);
-    final deadline = DateTime.now().add(const Duration(seconds: 8));
+    var sawCaptureStart = false;
+    final deadline = DateTime.now().add(const Duration(seconds: 12));
 
     while (mounted) {
       final state = floatingBloc.state;
       if (state.captureMode != FloatingCaptureMode.clip ||
           !state.isClipSessionActive) {
-        return false;
+        return null;
       }
 
       final rightDown = _isMouseButtonDown(VK_RBUTTON);
       if (rightDown && !previousRightDown) {
-        return false;
+        return null;
       }
       previousRightDown = rightDown;
 
-      if (captureBloc.state is! CaptureInProgress) {
-        return true;
+      final captureState = captureBloc.state;
+      if (captureState is CaptureInProgress) {
+        sawCaptureStart = true;
+      } else if (sawCaptureStart &&
+          (captureState is CaptureSuccess || captureState is CaptureError)) {
+        return captureState;
       }
 
       if (DateTime.now().isAfter(deadline)) {
-        return true;
+        return captureState;
       }
 
       await Future<void>.delayed(const Duration(milliseconds: 14));
     }
 
-    return false;
+    return null;
+  }
+
+  Future<_ClipCaptureNamingDecision?> _requestClipCaptureNaming(
+    FloatingButtonState state,
+  ) async {
+    return _showClipNamingDialog(
+      state: state,
+    );
+  }
+
+  Future<void> _dismissWindowsContextMenuAfterClipStop() async {
+    if (!Platform.isWindows) return;
+
+    await _waitUntilMouseReleased();
+    for (final delay in <int>[40, 120, 220]) {
+      await Future<void>.delayed(Duration(milliseconds: delay));
+      EndMenu();
+      final foregroundWindow = GetForegroundWindow();
+      if (foregroundWindow != 0) {
+        PostMessage(foregroundWindow, WM_CANCELMODE, 0, 0);
+      }
+    }
+  }
+
+  Future<void> _prepareForClipPointerCapture() async {
+    try {
+      final isVisible = await windowManager.isVisible();
+      if (isVisible) {
+        await windowManager.setAlwaysOnTop(false);
+        await windowManager.blur();
+        await windowManager.hide();
+        await windowManager.setAlwaysOnTop(true);
+      } else {
+        await windowManager.blur();
+      }
+    } on Object {
+      // Si la plataforma no responde, continuamos sin bloquear el flujo.
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 140));
+    await _waitUntilMouseReleased();
+  }
+
+  Future<void> _showClipSessionFinishedDialog(
+    FloatingButtonState state,
+  ) async {
+    const dialogWindowSize = Size(460, 260);
+    const dialogSurface = Color(0xFF11171D);
+    var wasSkipTaskbar = true;
+
+    try {
+      if (mounted) {
+        setState(() {
+          _showClipNamingTransition = true;
+        });
+      }
+      wasSkipTaskbar = await windowManager.isSkipTaskbar();
+      await windowManager.setSkipTaskbar(false);
+      await windowManager.setMinimumSize(dialogWindowSize);
+      await windowManager.setMaximumSize(dialogWindowSize);
+      await windowManager.setSize(dialogWindowSize);
+      await windowManager.setBackgroundColor(dialogSurface);
+      await windowManager.setHasShadow(true);
+      await windowManager.center();
+      await windowManager.show(inactive: true);
+      await windowManager.setAlwaysOnTop(true);
+    } on Object {
+      // Si alguna API nativa falla, el dialogo aun puede abrir.
+    }
+
+    try {
+      await showGeneralDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        barrierLabel: 'Fin captura clip',
+        barrierColor: Colors.transparent,
+        transitionDuration: const Duration(milliseconds: 120),
+        pageBuilder: (dialogContext, animation, secondaryAnimation) {
+          return const _ClipSessionFinishedDialog();
+        },
+        transitionBuilder:
+            (dialogContext, animation, secondaryAnimation, child) {
+              final curved = CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+              );
+              return FadeTransition(
+                opacity: curved,
+                child: ScaleTransition(
+                  scale: Tween<double>(
+                    begin: 0.98,
+                    end: 1,
+                  ).animate(curved),
+                  child: child,
+                ),
+              );
+            },
+      );
+    } finally {
+      try {
+        await windowManager.setMinimumSize(state.windowSize);
+        await windowManager.setMaximumSize(state.windowSize);
+        await windowManager.setSize(state.windowSize);
+        await windowManager.setPosition(state.position);
+        await windowManager.setBackgroundColor(Colors.transparent);
+        await windowManager.setHasShadow(false);
+        await windowManager.setSkipTaskbar(wasSkipTaskbar);
+        await windowManager.show(inactive: true);
+        await windowManager.setAlwaysOnTop(true);
+      } on Object {
+        // Evitamos romper la restauracion de la flotante.
+      } finally {
+        if (mounted) {
+          setState(() {
+            _showClipNamingTransition = false;
+          });
+        }
+      }
+    }
   }
 
   Future<void> _handleCaptureTap(FloatingButtonState state) async {
@@ -264,6 +477,26 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
         }
         await _startVideoCaptureFlow(effectiveState);
         return;
+    }
+  }
+
+  Future<void> _handleSystemCloseTap() async {
+    if (_isSystemClosing) {
+      return;
+    }
+
+    setState(() {
+      _isSystemClosing = true;
+    });
+
+    try {
+      await AppRouter.closeSystem();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSystemClosing = false;
+        });
+      }
     }
   }
 
@@ -356,6 +589,90 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
         await windowManager.show(inactive: true);
       } on Object {
         // Evitamos romper el flujo si la restauracion visual falla.
+      }
+    }
+  }
+
+  Future<_ClipCaptureNamingDecision?> _showClipNamingDialog({
+    required FloatingButtonState state,
+  }) async {
+    const dialogWindowSize = Size(560, 470);
+    const dialogSurface = Color(0xFF11171D);
+    var wasSkipTaskbar = true;
+
+    try {
+      if (mounted) {
+        setState(() {
+          _showClipNamingTransition = true;
+        });
+      }
+      wasSkipTaskbar = await windowManager.isSkipTaskbar();
+      await windowManager.setSkipTaskbar(false);
+      await windowManager.setMinimumSize(dialogWindowSize);
+      await windowManager.setMaximumSize(dialogWindowSize);
+      await windowManager.setSize(dialogWindowSize);
+      await windowManager.setBackgroundColor(dialogSurface);
+      await windowManager.setHasShadow(true);
+      await windowManager.center();
+      await windowManager.show();
+      await windowManager.setAlwaysOnTop(true);
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await windowManager.focus();
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await windowManager.setAlwaysOnTop(false);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await windowManager.setAlwaysOnTop(true);
+      await windowManager.focus();
+    } on Object {
+      // Si alguna API nativa falla, el dialogo aun puede abrir.
+    }
+
+    try {
+      return await showGeneralDialog<_ClipCaptureNamingDecision>(
+        context: context,
+        barrierDismissible: false,
+        barrierLabel: 'Nombrar captura clip',
+        barrierColor: Colors.transparent,
+        transitionDuration: const Duration(milliseconds: 120),
+        pageBuilder: (dialogContext, animation, secondaryAnimation) {
+          return const _ClipCaptureNamingDialog();
+        },
+        transitionBuilder:
+            (dialogContext, animation, secondaryAnimation, child) {
+              final curved = CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+              );
+              return FadeTransition(
+                opacity: curved,
+                child: ScaleTransition(
+                  scale: Tween<double>(
+                    begin: 0.98,
+                    end: 1,
+                  ).animate(curved),
+                  child: child,
+                ),
+              );
+            },
+      );
+    } finally {
+      try {
+        await windowManager.setMinimumSize(state.windowSize);
+        await windowManager.setMaximumSize(state.windowSize);
+        await windowManager.setSize(state.windowSize);
+        await windowManager.setPosition(state.position);
+        await windowManager.setBackgroundColor(Colors.transparent);
+        await windowManager.setHasShadow(false);
+        await windowManager.setSkipTaskbar(wasSkipTaskbar);
+        await windowManager.hide();
+      } on Object {
+        // Evitamos romper la sesion clip si la restauracion visual falla.
+      } finally {
+        if (mounted) {
+          setState(() {
+            _showClipNamingTransition = false;
+          });
+        }
       }
     }
   }
@@ -1072,6 +1389,10 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
               );
             }
 
+            if (_showClipNamingTransition) {
+              return const _ClipNamingTransitionSurface();
+            }
+
             final quickProjectSlots = _resolveQuickProjectSlots(state);
 
             return Material(
@@ -1089,6 +1410,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
                           state: state,
                           isVideoRecording: _isVideoRecording,
                           isVideoBusy: _isVideoBusy,
+                          isSystemClosing: _isSystemClosing,
                           videoElapsed: _videoRuntime.elapsed,
                           quickProjectSlots: quickProjectSlots,
                           onOpenViewerTap: () {
@@ -1100,11 +1422,13 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
                           },
                           onCaptureTap: () => _handleCaptureTap(state),
                           onModeTap: (mode) => _handleModeTap(mode, state),
+                          onCloseSystemTap: _handleSystemCloseTap,
                         )
                       : _HorizontalFloatingContent(
                           state: state,
                           isVideoRecording: _isVideoRecording,
                           isVideoBusy: _isVideoBusy,
+                          isSystemClosing: _isSystemClosing,
                           videoElapsed: _videoRuntime.elapsed,
                           quickProjectSlots: quickProjectSlots,
                           onOpenViewerTap: () {
@@ -1116,6 +1440,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
                           },
                           onCaptureTap: () => _handleCaptureTap(state),
                           onModeTap: (mode) => _handleModeTap(mode, state),
+                          onCloseSystemTap: _handleSystemCloseTap,
                         ),
                 ),
               ),
@@ -1150,6 +1475,7 @@ class _HorizontalFloatingContent extends StatelessWidget {
     required this.state,
     required this.isVideoRecording,
     required this.isVideoBusy,
+    required this.isSystemClosing,
     required this.videoElapsed,
     required this.quickProjectSlots,
     required this.onOpenViewerTap,
@@ -1157,11 +1483,13 @@ class _HorizontalFloatingContent extends StatelessWidget {
     required this.onQuickSlotSecondaryTap,
     required this.onCaptureTap,
     required this.onModeTap,
+    required this.onCloseSystemTap,
   });
 
   final FloatingButtonState state;
   final bool isVideoRecording;
   final bool isVideoBusy;
+  final bool isSystemClosing;
   final Duration videoElapsed;
   final List<ProjectEntity?> quickProjectSlots;
   final VoidCallback onOpenViewerTap;
@@ -1170,6 +1498,7 @@ class _HorizontalFloatingContent extends StatelessWidget {
   final void Function(int slotIndex) onQuickSlotSecondaryTap;
   final VoidCallback onCaptureTap;
   final ValueChanged<FloatingCaptureMode> onModeTap;
+  final Future<void> Function() onCloseSystemTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1242,9 +1571,11 @@ class _HorizontalFloatingContent extends StatelessWidget {
               const SizedBox(width: _kControlGap),
               _IconCircleButton(
                 icon: Icons.power_settings_new,
-                onTap: () async {
-                  await AppRouter.closeSystem();
-                },
+                onTap: isSystemClosing
+                    ? null
+                    : () {
+                        unawaited(onCloseSystemTap());
+                      },
               ),
             ],
           ),
@@ -1259,6 +1590,7 @@ class _VerticalFloatingContent extends StatelessWidget {
     required this.state,
     required this.isVideoRecording,
     required this.isVideoBusy,
+    required this.isSystemClosing,
     required this.videoElapsed,
     required this.quickProjectSlots,
     required this.onOpenViewerTap,
@@ -1266,11 +1598,13 @@ class _VerticalFloatingContent extends StatelessWidget {
     required this.onQuickSlotSecondaryTap,
     required this.onCaptureTap,
     required this.onModeTap,
+    required this.onCloseSystemTap,
   });
 
   final FloatingButtonState state;
   final bool isVideoRecording;
   final bool isVideoBusy;
+  final bool isSystemClosing;
   final Duration videoElapsed;
   final List<ProjectEntity?> quickProjectSlots;
   final VoidCallback onOpenViewerTap;
@@ -1279,6 +1613,7 @@ class _VerticalFloatingContent extends StatelessWidget {
   final void Function(int slotIndex) onQuickSlotSecondaryTap;
   final VoidCallback onCaptureTap;
   final ValueChanged<FloatingCaptureMode> onModeTap;
+  final Future<void> Function() onCloseSystemTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1351,9 +1686,11 @@ class _VerticalFloatingContent extends StatelessWidget {
               const SizedBox(height: _kControlGap),
               _IconCircleButton(
                 icon: Icons.power_settings_new,
-                onTap: () async {
-                  await AppRouter.closeSystem();
-                },
+                onTap: isSystemClosing
+                    ? null
+                    : () {
+                        unawaited(onCloseSystemTap());
+                      },
               ),
             ],
           ),
@@ -1705,10 +2042,11 @@ class _IconCircleButton extends StatelessWidget {
   });
 
   final IconData icon;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
+    final enabled = onTap != null;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1718,14 +2056,18 @@ class _IconCircleButton extends StatelessWidget {
           width: _kControlButtonSize,
           height: _kControlButtonSize,
           decoration: BoxDecoration(
-            color: const Color(0xCC25384A),
+            color: enabled ? const Color(0xCC25384A) : const Color(0x7A25384A),
             shape: BoxShape.circle,
-            border: Border.all(color: const Color(0x668BB8DB)),
+            border: Border.all(
+              color: enabled
+                  ? const Color(0x668BB8DB)
+                  : const Color(0x408BB8DB),
+            ),
           ),
           child: Icon(
             icon,
             size: _kControlIconSize,
-            color: const Color(0xFFF3F7FC),
+            color: enabled ? const Color(0xFFF3F7FC) : const Color(0x99F3F7FC),
           ),
         ),
       ),
@@ -1860,6 +2202,603 @@ class _QuickProjectBadge extends StatelessWidget {
     if (normalized.isEmpty) return '';
     final pieces = normalized.split('/');
     return pieces.isEmpty ? normalized : pieces.last.trim();
+  }
+}
+
+class _ClipCaptureNamingDecision {
+  const _ClipCaptureNamingDecision({
+    required this.baseName,
+    required this.sequenceSeed,
+    required this.applyToRemaining,
+  });
+
+  final String baseName;
+  final String sequenceSeed;
+  final bool applyToRemaining;
+
+  String get effectiveSequenceSeed {
+    final trimmedSeed = sequenceSeed.trim();
+    if (trimmedSeed.isNotEmpty) {
+      return trimmedSeed;
+    }
+    return applyToRemaining ? '1' : '';
+  }
+
+  String get fileName {
+    final trimmedBase = baseName.trim();
+    if (trimmedBase.isEmpty) {
+      return '';
+    }
+
+    final token = applyToRemaining
+        ? effectiveSequenceSeed
+        : sequenceSeed.trim();
+    if (token.isEmpty) {
+      return trimmedBase;
+    }
+    return '$trimmedBase-$token';
+  }
+}
+
+class _ClipNamingSequence {
+  _ClipNamingSequence({
+    required this.baseName,
+    required this.tokenPrefix,
+    required this.nextValue,
+    required this.padding,
+    required this.tokenSuffix,
+  });
+
+  final String baseName;
+  final String tokenPrefix;
+  int nextValue;
+  final int padding;
+  final String tokenSuffix;
+
+  factory _ClipNamingSequence.fromBaseAndSeed({
+    required String baseName,
+    required String initialToken,
+  }) {
+    final normalizedBase = baseName.trim();
+    final normalizedToken = initialToken.trim().isEmpty
+        ? '1'
+        : initialToken.trim();
+    final match = RegExp(r'^(.*?)(\d+)(.*)$').firstMatch(normalizedToken);
+    if (match == null) {
+      return _ClipNamingSequence(
+        baseName: normalizedBase,
+        tokenPrefix: '$normalizedToken-',
+        nextValue: 2,
+        padding: 1,
+        tokenSuffix: '',
+      );
+    }
+
+    return _ClipNamingSequence(
+      baseName: normalizedBase,
+      tokenPrefix: match.group(1) ?? '',
+      nextValue: int.parse(match.group(2)!) + 1,
+      padding: match.group(2)!.length,
+      tokenSuffix: match.group(3) ?? '',
+    );
+  }
+
+  String consumeCurrentName() {
+    final currentToken =
+        '$tokenPrefix${nextValue.toString().padLeft(padding, '0')}$tokenSuffix';
+    nextValue++;
+    return '$baseName-$currentToken';
+  }
+}
+
+class _ClipCaptureNamingDialog extends StatefulWidget {
+  const _ClipCaptureNamingDialog();
+
+  @override
+  State<_ClipCaptureNamingDialog> createState() =>
+      _ClipCaptureNamingDialogState();
+}
+
+class _ClipCaptureNamingDialogState extends State<_ClipCaptureNamingDialog> {
+  late final TextEditingController _baseNameController;
+  late final TextEditingController _sequenceController;
+  bool _applyToRemaining = false;
+  String? _validationMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _baseNameController = TextEditingController();
+    _sequenceController = TextEditingController(text: '1');
+  }
+
+  @override
+  void dispose() {
+    _baseNameController.dispose();
+    _sequenceController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const surface = Color(0xFF151A1F);
+    const frame = Color(0xFF0E141A);
+    const border = Color(0xFF2A3642);
+    const primary = Color(0xFF6EC1FF);
+    final baseTheme = Theme.of(context);
+    final theme = baseTheme.copyWith(
+      colorScheme: const ColorScheme.dark(
+        primary: primary,
+        onPrimary: Color(0xFF062033),
+        surface: surface,
+        onSurface: Color(0xFFF4F8FC),
+        error: Color(0xFFFFB4AB),
+      ),
+      textTheme: baseTheme.textTheme.apply(
+        bodyColor: const Color(0xFFF4F8FC),
+        displayColor: const Color(0xFFF4F8FC),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        labelStyle: const TextStyle(color: Color(0xFFC8D6E5)),
+        floatingLabelStyle: const TextStyle(color: Color(0xFF9ED6FF)),
+        hintStyle: const TextStyle(color: Color(0xFF7F96AB)),
+        filled: true,
+        fillColor: const Color(0xFF11171D),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: primary, width: 1.4),
+        ),
+      ),
+      checkboxTheme: CheckboxThemeData(
+        fillColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return primary;
+          }
+          return const Color(0xFF1A232C);
+        }),
+        checkColor: const WidgetStatePropertyAll(Color(0xFF062033)),
+        side: const BorderSide(color: border),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: const Color(0xFFD6E6F5)),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primary,
+          foregroundColor: const Color(0xFF062033),
+        ),
+      ),
+    );
+
+    final currentBaseName = _baseNameController.text.trim();
+    final currentSeed = _sequenceController.text.trim();
+    final effectiveSeed = currentSeed.isNotEmpty
+        ? currentSeed
+        : _applyToRemaining
+        ? '1'
+        : '';
+    final currentPreview = currentBaseName.isEmpty
+        ? 'Sin nombre personalizado'
+        : effectiveSeed.isEmpty
+        ? currentBaseName
+        : '$currentBaseName-$effectiveSeed';
+    final nextPreview = _buildNextSequencePreview(
+      currentBaseName,
+      effectiveSeed,
+    );
+
+    return Theme(
+      data: theme,
+      child: Material(
+        color: frame,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: frame,
+            border: Border.all(color: border),
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: surface,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: border),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x66000000),
+                  blurRadius: 20,
+                  offset: Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const AppText(
+                            'Nombre para la captura clip',
+                            variant: TextVariant.titleMedium,
+                            color: Color(0xFFF4F8FC),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10161C),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: border),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const AppText(
+                                  'Siguiente paso',
+                                  variant: TextVariant.labelSmall,
+                                  color: Color(0xFF8FA7BD),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Configura el nombre y luego realiza el clip para tomar la captura.',
+                                  style: TextStyle(
+                                    color: Color(0xFFE7EEF6),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          AppTextField(
+                            label: 'Nombre base',
+                            controller: _baseNameController,
+                            hint: 'Ejemplo: cafecaliente',
+                            onChanged: (_) {
+                              setState(() {
+                                _validationMessage = null;
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          AppTextField(
+                            label: 'Nomenclatura inicial',
+                            controller: _sequenceController,
+                            hint: 'Ejemplo: 1, 01, A1 o 1a',
+                            onChanged: (_) {
+                              setState(() {
+                                _validationMessage = null;
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 8),
+                          CheckboxListTile(
+                            value: _applyToRemaining,
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            title: const AppText(
+                              'Usar este patron para las siguientes capturas',
+                              color: Color(0xFFE7EEF6),
+                            ),
+                            onChanged: (value) {
+                              setState(() {
+                                _applyToRemaining = value ?? false;
+                                _validationMessage = null;
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 4),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10161C),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: border),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const AppText(
+                                  'Vista previa',
+                                  variant: TextVariant.labelSmall,
+                                  color: Color(0xFF8FA7BD),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  currentPreview,
+                                  style: const TextStyle(
+                                    color: Color(0xFFF4F8FC),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                if (_applyToRemaining &&
+                                    nextPreview.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Siguientes: $nextPreview...',
+                                    style: const TextStyle(
+                                      color: Color(0xFF9ED6FF),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          const AppText(
+                            'Si activas el patron y dejas la nomenclatura vacia, se usara 1. Si omites sin escribir un nombre, esta captura conservara el nombre por defecto.',
+                            variant: TextVariant.bodySmall,
+                            color: Color(0xFF8FA7BD),
+                          ),
+                          if (_validationMessage != null) ...[
+                            const SizedBox(height: 10),
+                            AppText(
+                              _validationMessage!,
+                              variant: TextVariant.bodySmall,
+                              color: const Color(0xFFFFB4AB),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      AppButton(
+                        label: 'Cancelar',
+                        variant: AppButtonVariant.text,
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                      const SizedBox(width: 10),
+                      AppButton(
+                        label: 'Omitir',
+                        variant: AppButtonVariant.text,
+                        onPressed: _submitSkip,
+                      ),
+                      const SizedBox(width: 10),
+                      AppButton(
+                        label: 'Guardar',
+                        onPressed: _submitSave,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submitSkip() async {
+    final trimmedBase = _baseNameController.text.trim();
+    if (trimmedBase.isEmpty) {
+      final acknowledged = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF151A1F),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: Color(0xFF2A3642)),
+            ),
+            title: const Text('Nombre por defecto'),
+            content: const Text(
+              'Esta captura se guardara con el nombre por defecto actual.',
+              style: TextStyle(color: Color(0xFFD6E6F5)),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text(
+                  'Entendido',
+                  style: TextStyle(color: Color(0xFF6EC1FF)),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+      if (!mounted || acknowledged != true) {
+        return;
+      }
+    }
+
+    Navigator.of(context).pop(
+      _ClipCaptureNamingDecision(
+        baseName: trimmedBase,
+        sequenceSeed: _sequenceController.text.trim(),
+        applyToRemaining: false,
+      ),
+    );
+  }
+
+  void _submitSave() {
+    final trimmedBase = _baseNameController.text.trim();
+    if (trimmedBase.isEmpty) {
+      setState(() {
+        _validationMessage =
+            'Escribe un nombre para guardar o usa Omitir para conservar el nombre por defecto.';
+      });
+      return;
+    }
+
+    Navigator.of(context).pop(
+      _ClipCaptureNamingDecision(
+        baseName: trimmedBase,
+        sequenceSeed: _sequenceController.text.trim(),
+        applyToRemaining: _applyToRemaining,
+      ),
+    );
+  }
+
+  String _buildNextSequencePreview(String baseName, String sequenceSeed) {
+    final trimmedBase = baseName.trim();
+    if (trimmedBase.isEmpty) {
+      return '';
+    }
+
+    final sequence = _ClipNamingSequence.fromBaseAndSeed(
+      baseName: trimmedBase,
+      initialToken: sequenceSeed,
+    );
+    final first = sequence.consumeCurrentName();
+    final second = sequence.consumeCurrentName();
+    return '$first, $second';
+  }
+}
+
+class _ClipNamingTransitionSurface extends StatelessWidget {
+  const _ClipNamingTransitionSurface();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Material(
+      color: Color(0xFF11171D),
+      child: SizedBox.expand(),
+    );
+  }
+}
+
+class _ClipSessionFinishedDialog extends StatefulWidget {
+  const _ClipSessionFinishedDialog();
+
+  @override
+  State<_ClipSessionFinishedDialog> createState() =>
+      _ClipSessionFinishedDialogState();
+}
+
+class _ClipSessionFinishedDialogState
+    extends State<_ClipSessionFinishedDialog> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_autoClose());
+  }
+
+  Future<void> _autoClose() async {
+    await Future<void>.delayed(const Duration(seconds: 3));
+    if (!mounted) return;
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const _ClipSessionFinishedDialogContent();
+  }
+}
+
+class _ClipSessionFinishedDialogContent extends StatelessWidget {
+  const _ClipSessionFinishedDialogContent();
+
+  @override
+  Widget build(BuildContext context) {
+    const surface = Color(0xFF151A1F);
+    const frame = Color(0xFF0E141A);
+    const border = Color(0xFF2A3642);
+    const primary = Color(0xFF6EC1FF);
+
+    final theme = Theme.of(context).copyWith(
+      colorScheme: const ColorScheme.dark(
+        primary: primary,
+        onPrimary: Color(0xFF062033),
+        surface: surface,
+        onSurface: Color(0xFFF4F8FC),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primary,
+          foregroundColor: const Color(0xFF062033),
+        ),
+      ),
+    );
+
+    return Theme(
+      data: theme,
+      child: Material(
+        color: frame,
+        child: Center(
+          child: Container(
+            width: 400,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: frame,
+              border: Border.all(color: border),
+            ),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+              decoration: BoxDecoration(
+                color: surface,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: border),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x66000000),
+                    blurRadius: 20,
+                    offset: Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const AppText(
+                    'Captura continua finalizada',
+                    variant: TextVariant.titleMedium,
+                    color: Color(0xFFF4F8FC),
+                  ),
+                  const SizedBox(height: 10),
+                  const AppText(
+                    'El proceso de toma de capturas en modo clip se ha detenido correctamente.',
+                    variant: TextVariant.bodyMedium,
+                    color: Color(0xFFD6E6F5),
+                  ),
+                  const SizedBox(height: 12),
+                  const AppText(
+                    'La ventana se cerrara automaticamente en 3 segundos.',
+                    variant: TextVariant.bodySmall,
+                    color: Color(0xFF8FA7BD),
+                  ),
+                  const SizedBox(height: 16),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: AppButton(
+                      label: 'OK',
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

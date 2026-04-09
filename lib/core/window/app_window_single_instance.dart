@@ -87,9 +87,11 @@ class AppWindowSingleInstance {
 
   /// Emite shutdown a todos los roles conocidos.
   static Future<void> broadcastShutdown() async {
-    for (final role in AppWindowRole.values) {
-      await sendCommand(role, AppWindowCommand.shutdown());
-    }
+    await Future.wait(
+      AppWindowRole.values.map(
+        (role) => sendCommand(role, AppWindowCommand.shutdown()),
+      ),
+    );
   }
 
   /// Libera el canal de instancia unica.

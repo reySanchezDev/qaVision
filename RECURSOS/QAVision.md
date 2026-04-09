@@ -149,3 +149,67 @@ Esto es especialmente útil para:
 Esta versión de QAVision ya entrega una base sólida para captura, documentación visual, edición de evidencia y grabación por zona, con un enfoque claro en productividad real para QA.
 
 Su propuesta de valor está en permitir que el equipo se concentre más en analizar y comunicar hallazgos, y menos en pelear con herramientas dispersas o flujos lentos.
+
+## Mejoras agregadas en esta versión
+
+Para actualizar el descriptivo del producto en la página de descarga, estas son las mejoras nuevas ya incorporadas y disponibles para los usuarios:
+
+### 1. Soporte multimonitor para captura por región
+
+QAVision ahora permite seleccionar regiones de captura sobre el escritorio extendido completo, no solo sobre el monitor principal.
+
+Esto permite:
+
+- capturar una zona directamente en un monitor secundario
+- arrastrar una selección que cruce más de un monitor
+- trabajar de forma más natural en configuraciones de QA con dos o más pantallas
+
+### 2. Mejor soporte multimonitor para grabación por zona
+
+La grabación de video por zona ahora funciona mejor en ambientes con múltiples monitores.
+
+Mejoras incluidas:
+
+- selección de zona sobre varios monitores
+- mejor posicionamiento de la ventana de opciones de grabación
+- mejor posicionamiento de la HUD de grabación para que aparezca en el monitor correcto
+
+### 3. Capturas con mejor fidelidad visual
+
+Las capturas se guardan como PNG, lo que mejora la nitidez de:
+
+- texto
+- bordes
+- iconos
+- interfaces de usuario
+
+Esto hace que la evidencia sea más útil para documentación, reportes y validaciones visuales.
+
+### 4. Copia automática al portapapeles
+
+Después de realizar una captura, la imagen queda disponible en el portapapeles para pegarla inmediatamente en herramientas como:
+
+- WhatsApp
+- Word
+- editores de texto enriquecido
+- tickets o plataformas de seguimiento
+
+### 5. Mayor estabilidad de la ventana flotante
+
+La ventana flotante ha sido reforzada para ofrecer una experiencia más consistente en uso real.
+
+Esto incluye:
+
+- mejor comportamiento al trabajar con capturas y video
+- mejor control del foco para evitar interferencias con el teclado
+- mejor manejo de estados para que la herramienta se mantenga estable durante la prueba
+
+### 6. Mejoras en la gestión de carpetas de trabajo
+
+Se fortaleció el flujo de selección de carpetas para que el usuario pueda organizar mejor la evidencia.
+
+Mejoras incluidas:
+
+- posibilidad de navegar a subcarpetas internas
+- mejor comportamiento al cancelar la selección de carpeta
+- gestión más estable de carpetas activas desde la ventana flotante

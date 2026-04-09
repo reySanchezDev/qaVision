@@ -1,5 +1,5 @@
 #define MyAppName "QAVision"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "QAVision"
 #define MyAppExeName "qavision.exe"
 #define MyAppId "{{E0E5E1A8-2D57-4D73-8B13-6A647F5A9E21}"

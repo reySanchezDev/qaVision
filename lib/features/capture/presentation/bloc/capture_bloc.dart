@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:qavision/core/config/app_defaults.dart';
 import 'package:qavision/core/services/capture_service.dart';
 import 'package:qavision/core/services/clipboard_service.dart';
+import 'package:qavision/core/services/file_system_service.dart';
 import 'package:qavision/features/capture/domain/entities/capture_entity.dart';
 import 'package:qavision/features/capture/domain/repositories/i_capture_repository.dart';
 import 'package:qavision/features/capture/presentation/bloc/capture_event.dart';
@@ -19,17 +20,21 @@ class CaptureBloc extends Bloc<CaptureEvent, CaptureState> {
     required CaptureService captureService,
     required ICaptureRepository captureRepository,
     required ClipboardService clipboardService,
+    required FileSystemService fileSystemService,
   }) : _captureService = captureService,
        _captureRepo = captureRepository,
        _clipboardService = clipboardService,
+       _fileSystemService = fileSystemService,
        super(const CaptureIdle()) {
     on<CaptureRequested>(_onCaptureRequested);
+    on<CaptureRenameRequested>(_onCaptureRenameRequested);
     on<CaptureResetRequested>(_onResetRequested);
   }
 
   final CaptureService _captureService;
   final ICaptureRepository _captureRepo;
   final ClipboardService _clipboardService;
+  final FileSystemService _fileSystemService;
   final _uuid = const Uuid();
   bool _captureInProgress = false;
 
@@ -59,6 +64,7 @@ class CaptureBloc extends Bloc<CaptureEvent, CaptureState> {
       final savedPath = await _captureService.captureAndSave(
         project: event.project,
         captureRect: event.captureRect,
+        fileNameOverride: event.fileNameOverride,
       );
 
       if (savedPath != null) {
@@ -100,6 +106,39 @@ class CaptureBloc extends Bloc<CaptureEvent, CaptureState> {
         await _safeShowWindow();
       }
       _captureInProgress = false;
+    }
+  }
+
+  Future<void> _onCaptureRenameRequested(
+    CaptureRenameRequested event,
+    Emitter<CaptureState> emit,
+  ) async {
+    final requestedName = event.fileNameOverride.trim();
+    if (requestedName.isEmpty) {
+      emit(CaptureSuccessSilent(event.capture));
+      return;
+    }
+
+    try {
+      final renamedPath = await _fileSystemService.renameFile(
+        event.capture.path,
+        newBaseName: requestedName,
+      );
+      if (renamedPath == null || renamedPath.trim().isEmpty) {
+        emit(CaptureSuccessSilent(event.capture));
+        return;
+      }
+
+      final updated = CaptureEntity(
+        id: event.capture.id,
+        path: renamedPath,
+        timestamp: event.capture.timestamp,
+        projectName: event.capture.projectName,
+      );
+      await _captureRepo.updateCapture(updated);
+      emit(CaptureSuccessSilent(updated));
+    } on Exception catch (e) {
+      emit(CaptureError('Error al renombrar la captura: $e'));
     }
   }
 

@@ -10,6 +10,7 @@ class AppRouter {
   /// Navigator key global para compatibilidad con flujos existentes.
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
+  static Future<void>? _closeSystemInFlight;
 
   /// Abre Configuracion en ventana independiente no modal.
   static Future<void> openSettings() {
@@ -46,7 +47,20 @@ class AppRouter {
   }
 
   /// Cierra el sistema completo (todas las ventanas/roles).
-  static Future<void> closeSystem() async {
+  static Future<void> closeSystem() {
+    final inFlight = _closeSystemInFlight;
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final future = _closeSystemInternal();
+    _closeSystemInFlight = future;
+    return future.whenComplete(() {
+      _closeSystemInFlight = null;
+    });
+  }
+
+  static Future<void> _closeSystemInternal() async {
     await AppWindowSingleInstance.broadcastShutdown();
     await windowManager.destroy();
   }

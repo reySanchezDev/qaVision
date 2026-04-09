@@ -5,6 +5,9 @@ abstract class ICaptureRepository {
   /// Guarda una nueva captura en el historial local.
   Future<void> saveCapture(CaptureEntity capture);
 
+  /// Actualiza una captura ya registrada en el historial local.
+  Future<void> updateCapture(CaptureEntity capture);
+
   /// Obtiene la lista de capturas recientes.
   Future<List<CaptureEntity>> getRecentCaptures({int limit = 10});
 

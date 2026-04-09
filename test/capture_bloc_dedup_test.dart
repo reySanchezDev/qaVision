@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qavision/core/services/capture_service.dart';
@@ -8,12 +10,14 @@ import 'package:qavision/features/capture/domain/entities/capture_entity.dart';
 import 'package:qavision/features/capture/domain/repositories/i_capture_repository.dart';
 import 'package:qavision/features/capture/presentation/bloc/capture_bloc.dart';
 import 'package:qavision/features/capture/presentation/bloc/capture_event.dart';
+import 'package:qavision/features/capture/presentation/bloc/capture_state.dart';
 import 'package:qavision/features/projects/domain/entities/project_entity.dart';
 
 class _InMemoryCaptureRepository implements ICaptureRepository {
   final List<CaptureEntity> _captures = <CaptureEntity>[];
 
   int get savedCount => _captures.length;
+  List<CaptureEntity> get captures => List<CaptureEntity>.from(_captures);
 
   @override
   Future<void> deleteCapture(String id) async {
@@ -33,6 +37,16 @@ class _InMemoryCaptureRepository implements ICaptureRepository {
   Future<void> saveCapture(CaptureEntity capture) async {
     _captures.add(capture);
   }
+
+  @override
+  Future<void> updateCapture(CaptureEntity capture) async {
+    final index = _captures.indexWhere((item) => item.id == capture.id);
+    if (index < 0) {
+      _captures.add(capture);
+      return;
+    }
+    _captures[index] = capture;
+  }
 }
 
 class _DelayedCaptureService extends CaptureService {
@@ -48,6 +62,7 @@ class _DelayedCaptureService extends CaptureService {
   Future<String?> captureAndSave({
     required ProjectEntity project,
     Rect? captureRect,
+    String? fileNameOverride,
   }) async {
     callCount++;
     await Future<void>.delayed(const Duration(milliseconds: 120));
@@ -108,6 +123,7 @@ void main() {
         captureService: captureService,
         captureRepository: captureRepository,
         clipboardService: clipboardService,
+        fileSystemService: FileSystemService(),
       );
 
       const project = ProjectEntity(
@@ -132,4 +148,63 @@ void main() {
       await bloc.close();
     },
   );
+
+  test('CaptureBloc renombra la captura y actualiza el historial', () async {
+    final tempDir = await Directory.systemTemp.createTemp('qavision_capture_');
+    addTearDown(() async {
+      if (tempDir.existsSync()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    final originalFile = File('${tempDir.path}/original.png');
+    await originalFile.writeAsBytes(const <int>[1, 2, 3, 4]);
+
+    final captureRepository = _InMemoryCaptureRepository();
+    final originalCapture = CaptureEntity(
+      id: 'capture-1',
+      path: 'ORIGINAL_PATH_PLACEHOLDER',
+      timestamp: DateTime(2026, 4, 9),
+      projectName: 'General',
+    );
+    await captureRepository.saveCapture(
+      CaptureEntity(
+        id: originalCapture.id,
+        path: 'ORIGINAL_PATH_PLACEHOLDER',
+        timestamp: originalCapture.timestamp,
+        projectName: originalCapture.projectName,
+      ),
+    );
+
+    final bloc = CaptureBloc(
+      captureService: _DelayedCaptureService(),
+      captureRepository: captureRepository,
+      clipboardService: _RecordingClipboardService(),
+      fileSystemService: FileSystemService(),
+    );
+
+    final capture = CaptureEntity(
+      id: originalCapture.id,
+      path: originalFile.path,
+      timestamp: originalCapture.timestamp,
+      projectName: originalCapture.projectName,
+    );
+
+    bloc.add(
+      CaptureRenameRequested(
+        capture: capture,
+        fileNameOverride: 'Pantalla-A1',
+      ),
+    );
+
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+
+    final renamed = File('${tempDir.path}/Pantalla-A1.png');
+    expect(renamed.existsSync(), isTrue);
+    expect(originalFile.existsSync(), isFalse);
+    expect(bloc.state, isA<CaptureSuccessSilent>());
+    expect(captureRepository.captures.single.path, renamed.path);
+
+    await bloc.close();
+  });
 }

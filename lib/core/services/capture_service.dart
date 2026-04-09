@@ -23,6 +23,7 @@ class CaptureService {
   Future<String?> captureAndSave({
     required ProjectEntity project,
     Rect? captureRect,
+    String? fileNameOverride,
   }) async {
     try {
       // 1) Captura nativa directa a PNG para preservar nitidez sin perdida,
@@ -37,7 +38,10 @@ class CaptureService {
       if (projectDir.isEmpty) {
         throw Exception('Proyecto sin carpeta valida para guardar');
       }
-      final fileName = kAppDefaults.fileNameMask.isEmpty
+      final requestedFileName = fileNameOverride?.trim() ?? '';
+      final fileName = requestedFileName.isNotEmpty
+          ? _fileSystem.sanitizeFileName(requestedFileName)
+          : kAppDefaults.fileNameMask.isEmpty
           ? _fileSystem.generateDefaultFileName()
           : _fileSystem.generateFileName(
               mask: kAppDefaults.fileNameMask,
