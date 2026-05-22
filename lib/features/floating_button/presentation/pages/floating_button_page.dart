@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
@@ -7,9 +8,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:qavision/core/di/service_locator.dart';
 import 'package:qavision/core/navigation/app_router.dart';
-import 'package:qavision/core/widgets/app_button.dart';
-import 'package:qavision/core/services/video_recording_service.dart';
+import 'package:qavision/core/services/native_screen_capture_service.dart';
 import 'package:qavision/core/services/video_recording_runtime_service.dart';
+import 'package:qavision/core/services/video_recording_service.dart';
+import 'package:qavision/core/widgets/app_button.dart';
 import 'package:qavision/core/widgets/app_text.dart';
 import 'package:qavision/core/widgets/app_text_field.dart';
 import 'package:qavision/features/capture/presentation/bloc/capture_bloc.dart';
@@ -67,6 +69,8 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
   Completer<_RegionSelectionDialogResult?>? _regionSelectionCompleter;
   Completer<_VideoTargetChoice?>? _videoTargetCompleter;
   Rect? _pendingVideoTargetAnchorBounds;
+  Map<String, Uint8List> _pendingVideoDisplayThumbnails =
+      const <String, Uint8List>{};
   int? _videoCountdownValue;
   String? _videoCountdownLabel;
   bool _isVideoBusy = false;
@@ -392,10 +396,11 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
       // Si alguna API nativa falla, el dialogo aun puede abrir.
     }
 
+    if (!mounted) return;
+
     try {
       await showGeneralDialog<void>(
         context: context,
-        barrierDismissible: false,
         barrierLabel: 'Fin captura clip',
         barrierColor: Colors.transparent,
         transitionDuration: const Duration(milliseconds: 120),
@@ -575,7 +580,8 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
       await windowManager.setAlwaysOnTop(false);
       await windowManager.setIgnoreMouseEvents(true, forward: true);
     } on Object {
-      // Si alguna API no responde en cierto equipo, el selector aun puede abrir.
+      // Si alguna API no responde en cierto equipo, el selector aun puede
+      // abrir.
     }
 
     try {
@@ -627,10 +633,11 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
       // Si alguna API nativa falla, el dialogo aun puede abrir.
     }
 
+    if (!mounted) return null;
+
     try {
       return await showGeneralDialog<_ClipCaptureNamingDecision>(
         context: context,
-        barrierDismissible: false,
         barrierLabel: 'Nombrar captura clip',
         barrierColor: Colors.transparent,
         transitionDuration: const Duration(milliseconds: 120),
@@ -741,7 +748,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
       if (mounted) {
         setState(() {});
       }
-    } catch (e) {
+    } on Object catch (e) {
       if (!mounted) return;
       if (startedSession != null) {
         try {
@@ -752,6 +759,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
       }
       _videoRuntime.reset();
       await _restoreVideoFloatingWindow(state.position);
+      if (!mounted) return;
 
       if (mounted) {
         await showDialog<void>(
@@ -775,6 +783,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
           ),
         );
       }
+      if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
           content: Text('No se pudo iniciar la grabación: $e'),
@@ -808,6 +817,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
       setState(() {});
 
       await _restoreVideoFloatingWindow(returnPosition);
+      if (!mounted) return;
 
       final message = (result?.isSuccess ?? false)
           ? 'Video guardado en la carpeta activa'
@@ -818,7 +828,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
           behavior: SnackBarBehavior.floating,
         ),
       );
-    } catch (e) {
+    } on Object catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
@@ -902,7 +912,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
   Offset _resolveVideoHudPosition(_VideoTargetSelection selection) {
     const topMargin = 18.0;
     const sideMargin = 12.0;
-    final hudSize = kFloatingVideoRecordingHudSize;
+    const hudSize = kFloatingVideoRecordingHudSize;
     final overlayRect = Rect.fromLTWH(
       selection.overlayOrigin.dx,
       selection.overlayOrigin.dy,
@@ -916,7 +926,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
       overlayRect.right - hudSize.width - sideMargin,
     );
     final top = overlayRect.top + topMargin;
-    return Offset(clampedLeft.toDouble(), top);
+    return Offset(clampedLeft, top);
   }
 
   Future<Rect> _resolveDisplayBoundsForPosition(Offset position) async {
@@ -942,6 +952,19 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
     final origin = display.visiblePosition ?? Offset.zero;
     final size = display.visibleSize ?? display.size;
     return Rect.fromLTWH(origin.dx, origin.dy, size.width, size.height);
+  }
+
+  Rect _displayLocalRect(
+    Display display,
+    VirtualDesktopOverlayMetrics overlayMetrics,
+  ) {
+    final displayBounds = _displayBounds(display);
+    return displayBounds.shift(
+      Offset(
+        -overlayMetrics.logicalOrigin.dx,
+        -overlayMetrics.logicalOrigin.dy,
+      ),
+    );
   }
 
   double _distanceToRect(Offset point, Rect rect) {
@@ -1013,11 +1036,12 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
   Future<_VideoTargetChoice?> _requestVideoTargetSelectionOverlay(
     FloatingButtonState state,
   ) async {
-    final displays = await screenRetriever.getAllDisplays();
-    final availableDisplays = displays.isEmpty
-        ? <Display>[await screenRetriever.getPrimaryDisplay()]
-        : displays;
+    final availableDisplays = await _resolveAvailableDisplays();
     final overlayMetrics = await _resolveVirtualDesktopOverlayMetrics();
+    final displayThumbnails = await _captureVideoDisplayThumbnails(
+      displays: availableDisplays,
+      overlayMetrics: overlayMetrics,
+    );
     final overlaySize = overlayMetrics.logicalSize;
     final overlayOrigin = overlayMetrics.logicalOrigin;
     final anchorBounds = await _resolveDisplayBoundsForPosition(state.position);
@@ -1026,6 +1050,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
     var shouldRestoreWindow = true;
     _videoTargetCompleter = completer;
     _pendingVideoDisplays = availableDisplays;
+    _pendingVideoDisplayThumbnails = displayThumbnails;
     _pendingVideoTargetAnchorBounds = anchorBounds;
     if (mounted) {
       context.read<FloatingButtonBloc>().add(
@@ -1047,14 +1072,13 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
         return null;
       }
 
-      if (choice.kind == _VideoTargetChoiceKind.region) {
-        shouldRestoreWindow = false;
-      }
+      shouldRestoreWindow = false;
 
       return choice;
     } finally {
       _videoTargetCompleter = null;
       _pendingVideoDisplays = const <Display>[];
+      _pendingVideoDisplayThumbnails = const <String, Uint8List>{};
       _pendingVideoTargetAnchorBounds = null;
       if (mounted) {
         setState(() {});
@@ -1080,53 +1104,102 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
     FloatingButtonState state,
     _VideoTargetChoice choice,
   ) async {
-    if (choice.kind == _VideoTargetChoiceKind.region) {
-      try {
-        final selection = await _requestVideoRegionCaptureRect(state);
-        if (!mounted || selection?.captureRect == null) {
-          await _restoreVideoOverlayWindow(state);
-          return null;
-        }
-
-        return _VideoTargetSelection(
-          target: VideoRecordingTarget(
-            kind: VideoRecordingSourceKind.region,
-            label: 'Área personalizada',
-            desktopRect: selection!.captureRect!,
-          ),
-          overlayOrigin: selection.anchorOrigin ?? Offset.zero,
-          overlaySize: selection.anchorSize ?? const Size(1200, 800),
-        );
-      } finally {
-        if (mounted) {
-          context.read<FloatingButtonBloc>().add(
-            const FloatingButtonVideoOverlayEnded(),
-          );
-        }
-      }
+    if (choice.displayIndex != null) {
+      return _resolveVideoDisplayTargetSelection(state, choice.displayIndex!);
     }
 
-    final display = choice.display!;
-    final scaleFactor = display.scaleFactor?.toDouble() ?? 1.0;
-    final logicalOrigin = display.visiblePosition ?? Offset.zero;
-    final logicalSize = display.size;
+    try {
+      final selection = await _requestVideoRegionCaptureRect(state);
+      if (!mounted || selection?.captureRect == null) {
+        await _restoreVideoOverlayWindow(state);
+        return null;
+      }
 
-    final physicalRect = Rect.fromLTWH(
-      logicalOrigin.dx * scaleFactor,
-      logicalOrigin.dy * scaleFactor,
-      logicalSize.width * scaleFactor,
-      logicalSize.height * scaleFactor,
-    );
+      return _VideoTargetSelection(
+        target: VideoRecordingTarget(
+          kind: VideoRecordingSourceKind.region,
+          label: 'Area personalizada',
+          desktopRect: selection!.captureRect!,
+        ),
+        overlayOrigin: selection.anchorOrigin ?? Offset.zero,
+        overlaySize: selection.anchorSize ?? const Size(1200, 800),
+      );
+    } finally {
+      if (mounted) {
+        context.read<FloatingButtonBloc>().add(
+          const FloatingButtonVideoOverlayEnded(),
+        );
+      }
+    }
+  }
 
-    return _VideoTargetSelection(
-      target: VideoRecordingTarget(
-        kind: VideoRecordingSourceKind.display,
-        label: choice.label,
-        desktopRect: physicalRect,
-      ),
-      overlayOrigin: logicalOrigin,
-      overlaySize: logicalSize,
-    );
+  Future<_VideoTargetSelection?> _resolveVideoDisplayTargetSelection(
+    FloatingButtonState state,
+    int displayIndex,
+  ) async {
+    try {
+      final displays = await _resolveAvailableDisplays();
+      if (displayIndex < 0 || displayIndex >= displays.length) {
+        await _restoreVideoOverlayWindow(state);
+        return null;
+      }
+
+      final display = displays[displayIndex];
+      final displayBounds = _displayBounds(display);
+      final overlayMetrics = await _resolveVirtualDesktopOverlayMetrics();
+      final localDisplayRect = _displayLocalRect(display, overlayMetrics);
+
+      return _VideoTargetSelection(
+        target: VideoRecordingTarget(
+          kind: VideoRecordingSourceKind.display,
+          label: _videoDisplayTitle(display, displayIndex),
+          desktopRect: overlayMetrics.selectionToPhysicalRect(
+            localDisplayRect,
+          ),
+        ),
+        overlayOrigin: displayBounds.topLeft,
+        overlaySize: displayBounds.size,
+      );
+    } finally {
+      if (mounted) {
+        context.read<FloatingButtonBloc>().add(
+          const FloatingButtonVideoOverlayEnded(),
+        );
+      }
+    }
+  }
+
+  Future<List<Display>> _resolveAvailableDisplays() async {
+    final displays = await screenRetriever.getAllDisplays();
+    if (displays.isNotEmpty) {
+      return displays;
+    }
+    return <Display>[await screenRetriever.getPrimaryDisplay()];
+  }
+
+  Future<Map<String, Uint8List>> _captureVideoDisplayThumbnails({
+    required List<Display> displays,
+    required VirtualDesktopOverlayMetrics overlayMetrics,
+  }) async {
+    if (!Platform.isWindows || !sl.isRegistered<NativeScreenCaptureService>()) {
+      return const <String, Uint8List>{};
+    }
+
+    final captureService = sl<NativeScreenCaptureService>();
+    final thumbnails = <String, Uint8List>{};
+    for (final entry in displays.asMap().entries) {
+      try {
+        final localDisplayRect = _displayLocalRect(entry.value, overlayMetrics);
+        final physicalRect = overlayMetrics.selectionToPhysicalRect(
+          localDisplayRect,
+        );
+        thumbnails[_videoDisplayThumbnailKey(entry.value, entry.key)] =
+            await captureService.capturePngBytes(region: physicalRect);
+      } on Object {
+        // La miniatura es decorativa; la seleccion del monitor sigue viva.
+      }
+    }
+    return thumbnails;
   }
 
   Future<_RegionCaptureSelection?> _requestVideoRegionCaptureRect(
@@ -1176,7 +1249,6 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
 
       return _RegionCaptureSelection(
         captureRect: overlayMetrics.selectionToPhysicalRect(selectedRect),
-        windowAlreadyHidden: false,
         overlayOrigin: overlayOrigin,
         overlaySize: overlaySize,
         anchorOrigin: anchorRect.topLeft,
@@ -1352,6 +1424,7 @@ class _FloatingButtonBodyState extends State<FloatingButtonBody> {
               final displays = _pendingVideoDisplays;
               return _VideoTargetSelectionSurface(
                 displays: displays,
+                displayThumbnails: _pendingVideoDisplayThumbnails,
                 anchorBounds:
                     _pendingVideoTargetAnchorBounds ??
                     const Rect.fromLTWH(0, 0, 1200, 800),
@@ -1791,69 +1864,6 @@ class _VideoRecordingHud extends StatelessWidget {
         ),
       ),
     );
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      child: DecoratedBox(
-        decoration: _floatingPanelDecoration(),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: Row(
-            children: [
-              Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: isPaused
-                      ? const Color(0xFFE0B74C)
-                      : const Color(0xFFE25252),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 10),
-              SizedBox(
-                width: 68,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isPaused ? 'Grabación en pausa' : 'Grabando video',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _formatDuration(elapsed),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.4,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              _RecordingHudButton(
-                icon: isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-                onTap: isBusy ? null : onPauseToggle,
-              ),
-              const SizedBox(width: 8),
-              _RecordingHudButton(
-                icon: Icons.stop_rounded,
-                destructive: true,
-                onTap: isBusy ? null : onStop,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 }
 
@@ -2249,12 +2259,6 @@ class _ClipNamingSequence {
     required this.tokenSuffix,
   });
 
-  final String baseName;
-  final String tokenPrefix;
-  int nextValue;
-  final int padding;
-  final String tokenSuffix;
-
   factory _ClipNamingSequence.fromBaseAndSeed({
     required String baseName,
     required String initialToken,
@@ -2282,6 +2286,12 @@ class _ClipNamingSequence {
       tokenSuffix: match.group(3) ?? '',
     );
   }
+
+  final String baseName;
+  final String tokenPrefix;
+  int nextValue;
+  final int padding;
+  final String tokenSuffix;
 
   String consumeCurrentName() {
     final currentToken =
@@ -2445,17 +2455,18 @@ class _ClipCaptureNamingDialogState extends State<_ClipCaptureNamingDialog> {
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(color: border),
                             ),
-                            child: Column(
+                            child: const Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const AppText(
+                                AppText(
                                   'Siguiente paso',
                                   variant: TextVariant.labelSmall,
                                   color: Color(0xFF8FA7BD),
                                 ),
-                                const SizedBox(height: 4),
-                                const Text(
-                                  'Configura el nombre y luego realiza el clip para tomar la captura.',
+                                SizedBox(height: 4),
+                                Text(
+                                  'Configura el nombre y luego realiza el '
+                                  'clip para tomar la captura.',
                                   style: TextStyle(
                                     color: Color(0xFFE7EEF6),
                                     fontSize: 13,
@@ -2546,7 +2557,10 @@ class _ClipCaptureNamingDialogState extends State<_ClipCaptureNamingDialog> {
                           ),
                           const SizedBox(height: 10),
                           const AppText(
-                            'Si activas el patron y dejas la nomenclatura vacia, se usara 1. Si omites sin escribir un nombre, esta captura conservara el nombre por defecto.',
+                            'Si activas el patron y dejas la nomenclatura '
+                            'vacia, se usara 1. Si omites sin escribir un '
+                            'nombre, esta captura conservara el nombre por '
+                            'defecto.',
                             variant: TextVariant.bodySmall,
                             color: Color(0xFF8FA7BD),
                           ),
@@ -2642,7 +2656,8 @@ class _ClipCaptureNamingDialogState extends State<_ClipCaptureNamingDialog> {
     if (trimmedBase.isEmpty) {
       setState(() {
         _validationMessage =
-            'Escribe un nombre para guardar o usa Omitir para conservar el nombre por defecto.';
+            'Escribe un nombre para guardar o usa Omitir para conservar '
+            'el nombre por defecto.';
       });
       return;
     }
@@ -2774,8 +2789,8 @@ class _ClipSessionFinishedDialogContent extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   const AppText(
-                    'El proceso de toma de capturas en modo clip se ha detenido correctamente.',
-                    variant: TextVariant.bodyMedium,
+                    'El proceso de toma de capturas en modo clip se ha '
+                    'detenido correctamente.',
                     color: Color(0xFFD6E6F5),
                   ),
                   const SizedBox(height: 12),
@@ -2929,22 +2944,52 @@ class _RegionSelectionPainter extends CustomPainter {
   }
 }
 
-enum _VideoTargetChoiceKind { region, display }
+String _videoDisplayThumbnailKey(Display display, int displayIndex) {
+  final id = display.id.trim();
+  if (id.isNotEmpty) {
+    return id;
+  }
+  return 'display-$displayIndex';
+}
+
+String _videoDisplayTitle(Display display, int displayIndex) {
+  final name = display.name?.trim();
+  if (name != null && name.isNotEmpty) {
+    return 'Pantalla ${displayIndex + 1} - $name';
+  }
+  return 'Pantalla ${displayIndex + 1}';
+}
+
+String _videoDisplaySubtitle(Display display) {
+  final size = display.visibleSize ?? display.size;
+  final scale = display.scaleFactor;
+  final scaleText = scale == null || scale <= 0
+      ? ''
+      : ' - Escala ${(scale * 100).round()}%';
+  return '${size.width.round()} x ${size.height.round()} - Pantalla completa'
+      '$scaleText';
+}
+
+double _displayPreviewAspectRatio(Size size) {
+  if (size.width <= 0 || size.height <= 0) {
+    return 16 / 9;
+  }
+  final aspectRatio = size.width / size.height;
+  if (aspectRatio < 1.15) {
+    return 1.15;
+  }
+  if (aspectRatio > 2.4) {
+    return 2.4;
+  }
+  return aspectRatio;
+}
 
 class _VideoTargetChoice {
-  const _VideoTargetChoice.region()
-    : kind = _VideoTargetChoiceKind.region,
-      display = null,
-      label = 'Área personalizada';
+  const _VideoTargetChoice.region() : displayIndex = null;
 
-  const _VideoTargetChoice.display({
-    required this.display,
-    required this.label,
-  }) : kind = _VideoTargetChoiceKind.display;
+  const _VideoTargetChoice.display(this.displayIndex);
 
-  final _VideoTargetChoiceKind kind;
-  final Display? display;
-  final String label;
+  final int? displayIndex;
 }
 
 class _VideoTargetSelection {
@@ -2959,94 +3004,16 @@ class _VideoTargetSelection {
   final Size overlaySize;
 }
 
-class _VideoTargetDialog extends StatelessWidget {
-  const _VideoTargetDialog({
-    required this.displays,
-  });
-
-  final List<Display> displays;
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: const Color(0xFF161C24),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Grabar video',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Elige si quieres grabar una región o una pantalla completa.',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.74),
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(height: 18),
-              _VideoTargetOptionTile(
-                icon: Icons.crop_free,
-                title: 'Área personalizada',
-                subtitle: 'Selecciona manualmente la zona a grabar',
-                onTap: () {
-                  Navigator.of(
-                    context,
-                  ).pop(const _VideoTargetChoice.region());
-                },
-              ),
-              const SizedBox(height: 10),
-              ...displays.asMap().entries.map((entry) {
-                final display = entry.value;
-                final size = display.size;
-                final label = 'Pantalla ${entry.key + 1}';
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _VideoTargetOptionTile(
-                    icon: Icons.monitor,
-                    title: label,
-                    subtitle: '${size.width.round()} x ${size.height.round()}',
-                    onTap: () {
-                      Navigator.of(context).pop(
-                        _VideoTargetChoice.display(
-                          display: display,
-                          label: label,
-                        ),
-                      );
-                    },
-                  ),
-                );
-              }),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _VideoTargetSelectionSurface extends StatelessWidget {
   const _VideoTargetSelectionSurface({
     required this.displays,
+    required this.displayThumbnails,
     required this.anchorBounds,
     required this.onSelected,
   });
 
   final List<Display> displays;
+  final Map<String, Uint8List> displayThumbnails;
   final Rect anchorBounds;
   final ValueChanged<_VideoTargetChoice?> onSelected;
 
@@ -3102,7 +3069,8 @@ class _VideoTargetSelectionSurface extends StatelessWidget {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Elige si vas a grabar una región o una pantalla completa.',
+                            'Elige si vas a grabar una region o una '
+                            'pantalla completa.',
                             style: TextStyle(
                               color: Colors.white.withValues(alpha: 0.74),
                               fontSize: 13,
@@ -3118,23 +3086,45 @@ class _VideoTargetSelectionSurface extends StatelessWidget {
                             },
                           ),
                           const SizedBox(height: 10),
-                          ...displays.asMap().entries.map((entry) {
-                            final display = entry.value;
-                            final size = display.size;
-                            final label = 'Pantalla ${entry.key + 1}';
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _VideoTargetOptionTile(
-                                icon: Icons.monitor,
-                                title: label,
-                                subtitle:
-                                    '${size.width.round()} x ${size.height.round()} · Próximamente',
-                                badgeLabel: 'En construcción',
-                                enabled: false,
-                                onTap: () {},
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxHeight: 260),
+                            child: SingleChildScrollView(
+                              child: Column(
+                                children: displays
+                                    .asMap()
+                                    .entries
+                                    .map((
+                                      entry,
+                                    ) {
+                                      final display = entry.value;
+                                      final thumbnailKey =
+                                          _videoDisplayThumbnailKey(
+                                            display,
+                                            entry.key,
+                                          );
+                                      return Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 10,
+                                        ),
+                                        child: _VideoDisplayOptionTile(
+                                          display: display,
+                                          displayIndex: entry.key,
+                                          thumbnail:
+                                              displayThumbnails[thumbnailKey],
+                                          onTap: () {
+                                            onSelected(
+                                              _VideoTargetChoice.display(
+                                                entry.key,
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      );
+                                    })
+                                    .toList(growable: false),
                               ),
-                            );
-                          }),
+                            ),
+                          ),
                           const SizedBox(height: 8),
                           Row(
                             children: [
@@ -3166,7 +3156,10 @@ class _VideoTargetSelectionSurface extends StatelessWidget {
                                     ),
                                   ),
                                 ),
-                                icon: const Icon(Icons.close_rounded, size: 16),
+                                icon: const Icon(
+                                  Icons.close_rounded,
+                                  size: 16,
+                                ),
                                 label: const Text(
                                   'Cancelar',
                                   style: TextStyle(
@@ -3191,43 +3184,216 @@ class _VideoTargetSelectionSurface extends StatelessWidget {
   }
 }
 
+class _VideoDisplayOptionTile extends StatelessWidget {
+  const _VideoDisplayOptionTile({
+    required this.display,
+    required this.displayIndex,
+    required this.onTap,
+    this.thumbnail,
+  });
+
+  final Display display;
+  final int displayIndex;
+  final Uint8List? thumbnail;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final previewSize = display.visibleSize ?? display.size;
+    final aspectRatio = _displayPreviewAspectRatio(previewSize);
+    final title = _videoDisplayTitle(display, displayIndex);
+    final subtitle = _videoDisplaySubtitle(display);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            color: const Color(0xFF0F141B),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 84,
+                height: 54,
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: aspectRatio,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1C2632),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.12),
+                          ),
+                        ),
+                        child: thumbnail == null
+                            ? _VideoDisplayFallbackPreview(
+                                displayIndex: displayIndex,
+                              )
+                            : Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  Image.memory(
+                                    thumbnail!,
+                                    fit: BoxFit.cover,
+                                    gaplessPlayback: true,
+                                  ),
+                                  DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.10,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    right: 4,
+                                    top: 4,
+                                    child: _VideoDisplayNumberBadge(
+                                      displayIndex: displayIndex,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.62),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: Colors.white.withValues(alpha: 0.62),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VideoDisplayFallbackPreview extends StatelessWidget {
+  const _VideoDisplayFallbackPreview({
+    required this.displayIndex,
+  });
+
+  final int displayIndex;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const Center(
+          child: Icon(
+            Icons.desktop_windows_rounded,
+            color: Colors.white70,
+            size: 20,
+          ),
+        ),
+        Positioned(
+          right: 4,
+          top: 4,
+          child: _VideoDisplayNumberBadge(displayIndex: displayIndex),
+        ),
+      ],
+    );
+  }
+}
+
+class _VideoDisplayNumberBadge extends StatelessWidget {
+  const _VideoDisplayNumberBadge({
+    required this.displayIndex,
+  });
+
+  final int displayIndex;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xCC000000),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: Text(
+          '${displayIndex + 1}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _VideoTargetOptionTile extends StatelessWidget {
   const _VideoTargetOptionTile({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
-    this.badgeLabel,
-    this.enabled = true,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
-  final String? badgeLabel;
-  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
-    final foreground = enabled
-        ? Colors.white
-        : Colors.white.withValues(alpha: 0.52);
-    final secondary = enabled
-        ? Colors.white.withValues(alpha: 0.62)
-        : Colors.white.withValues(alpha: 0.42);
+    final secondary = Colors.white.withValues(alpha: 0.62);
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: enabled ? onTap : null,
+        onTap: onTap,
         borderRadius: BorderRadius.circular(16),
         child: Ink(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            color: enabled ? const Color(0xFF0F141B) : const Color(0xFF131920),
+            color: const Color(0xFF0F141B),
             border: Border.all(
-              color: Colors.white.withValues(alpha: enabled ? 0.08 : 0.05),
+              color: Colors.white.withValues(alpha: 0.08),
             ),
           ),
           child: Row(
@@ -3236,12 +3402,10 @@ class _VideoTargetOptionTile extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: enabled
-                      ? const Color(0xFF1C2632)
-                      : const Color(0xFF19212B),
+                  color: const Color(0xFF1C2632),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, color: foreground, size: 20),
+                child: Icon(icon, color: Colors.white, size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -3253,38 +3417,13 @@ class _VideoTargetOptionTile extends StatelessWidget {
                         Expanded(
                           child: Text(
                             title,
-                            style: TextStyle(
-                              color: foreground,
+                            style: const TextStyle(
+                              color: Colors.white,
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
-                        if (badgeLabel != null) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0x29F0B35A),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                color: const Color(0x66F0B35A),
-                              ),
-                            ),
-                            child: Text(
-                              badgeLabel!,
-                              style: const TextStyle(
-                                color: Color(0xFFF0C980),
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.3,
-                              ),
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                     const SizedBox(height: 3),
@@ -3299,7 +3438,7 @@ class _VideoTargetOptionTile extends StatelessWidget {
                 ),
               ),
               Icon(
-                enabled ? Icons.chevron_right_rounded : Icons.build_rounded,
+                Icons.chevron_right_rounded,
                 color: secondary,
               ),
             ],
@@ -3454,7 +3593,7 @@ class _AnimatedCountdownNumber extends StatelessWidget {
           ),
           TweenAnimationBuilder<double>(
             key: ValueKey('pulse-$countdown'),
-            tween: Tween(begin: 0.86, end: 1.0),
+            tween: Tween(begin: 0.86, end: 1),
             duration: const Duration(milliseconds: 700),
             curve: Curves.easeOutBack,
             builder: (context, value, child) {

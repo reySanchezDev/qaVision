@@ -64,15 +64,16 @@ void main() {
           ),
         );
 
-        final frame = const FrameState(
-          elements: [
-            baseComponent,
-          ],
-        ).copyWith(
-          elements: [
-            baseComponent.copyWith(path: imagePath),
-          ],
-        );
+        final frame =
+            const FrameState(
+              elements: [
+                baseComponent,
+              ],
+            ).copyWith(
+              elements: [
+                baseComponent.copyWith(path: imagePath),
+              ],
+            );
 
         final plan = await service.prepareSavePlan(
           activeImagePath: imagePath,
@@ -139,26 +140,26 @@ void main() {
       final enriched = frame.copyWith(
         elements: [
           ...frame.elements,
-          const AnnotationElement(
+          AnnotationElement(
             id: 'rich-panel',
             type: AnnotationType.richTextPanel,
             color: 0xFF123456,
             strokeWidth: 2,
             textSize: 22,
-            position: Offset(180, 120),
-            endPosition: Offset(520, 320),
+            position: const Offset(180, 120),
+            endPosition: const Offset(520, 320),
             text: 'Se valido guardar y editar.',
-            richTextDelta: '[{\"insert\":\"Se valido \"},'
-                '{\"insert\":\"guardar\",\"attributes\":{\"bold\":true}},'
-                '{\"insert\":\" y \"},{\"insert\":\"editar\",'
-                '\"attributes\":{\"background\":\"#FFF59D\"}},'
-                '{\"insert\":\".\\n\"}]',
+            richTextDelta: <String>[
+              '[{"insert":"Se valido "},',
+              '{"insert":"guardar","attributes":{"bold":true}},',
+              '{"insert":" y "},{"insert":"editar",',
+              '"attributes":{"background":"#FFF59D"}},',
+              r'{"insert":".\n"}]',
+            ].join(),
             fontFamily: 'Georgia',
             isBold: true,
-            isItalic: false,
             hasShadow: true,
             backgroundColor: 0xF7FFF8E1,
-            panelAlignment: ViewerTextPanelAlignment.justify,
             zIndex: 88,
           ),
         ],
@@ -174,9 +175,9 @@ void main() {
         imagePath: imagePath,
         defaults: defaults,
       );
-      final panel = loaded.elements
-          .whereType<AnnotationElement>()
-          .firstWhere((element) => element.id == 'rich-panel');
+      final panel = loaded.elements.whereType<AnnotationElement>().firstWhere(
+        (element) => element.id == 'rich-panel',
+      );
       expect(panel.type, AnnotationType.richTextPanel);
       expect(panel.fontFamily, 'Georgia');
       expect(panel.isBold, isTrue);
@@ -220,7 +221,6 @@ void main() {
             type: AnnotationType.text,
             color: 0xFFE53935,
             strokeWidth: 2,
-            textSize: 18,
             position: Offset(220, 180),
             text: 'draft',
             zIndex: 99,
@@ -246,7 +246,8 @@ void main() {
     });
 
     test(
-      'normaliza panel de texto adjunto reciente al espacio imageFrame al cargar',
+      'normaliza panel de texto adjunto reciente al espacio imageFrame '
+      'al cargar',
       () async {
         final imagePath = await _writeTestJpg(
           '${tempDir.path}${Platform.pathSeparator}recent_rich_panel.jpg',
@@ -273,15 +274,13 @@ void main() {
               type: AnnotationType.richTextPanel,
               color: 0xFF222222,
               strokeWidth: 1.5,
-              textSize: 18,
-              position: image.contentViewportRect.topLeft +
-                  const Offset(40, 24),
-              endPosition: image.contentViewportRect.topLeft +
-                  const Offset(260, 144),
+              position:
+                  image.contentViewportRect.topLeft + const Offset(40, 24),
+              endPosition:
+                  image.contentViewportRect.topLeft + const Offset(260, 144),
               text: 'panel',
-              richTextDelta: '[{"insert":"panel\\n"}]',
+              richTextDelta: r'[{"insert":"panel\n"}]',
               attachedImageId: image.id,
-              coordinateSpace: AnnotationCoordinateSpace.workspace,
               zIndex: 50,
             ),
           ],
@@ -297,9 +296,9 @@ void main() {
           imagePath: imagePath,
           defaults: defaults,
         );
-        final panel = loaded.elements
-            .whereType<AnnotationElement>()
-            .firstWhere((element) => element.id == 'recent-panel');
+        final panel = loaded.elements.whereType<AnnotationElement>().firstWhere(
+          (element) => element.id == 'recent-panel',
+        );
 
         expect(panel.coordinateSpace, AnnotationCoordinateSpace.imageFrame);
       },

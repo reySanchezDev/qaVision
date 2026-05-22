@@ -64,7 +64,8 @@ class _RecentStripProjectSlotControlState
             onTap: widget.onSelect,
             onSecondaryTapDown: project == null
                 ? null
-                : (details) => _showOptionsMenu(context, details.globalPosition),
+                : (details) =>
+                      _showOptionsMenu(context, details.globalPosition),
             borderRadius: BorderRadius.circular(14),
             child: Container(
               constraints: const BoxConstraints(minWidth: 136, maxWidth: 190),
@@ -271,9 +272,7 @@ class RecentStripAddFolderControl extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: enabled
-          ? 'Agregar carpeta'
-          : 'Máximo de 6 carpetas en la cinta',
+      message: enabled ? 'Agregar carpeta' : 'Máximo de 6 carpetas en la cinta',
       child: Material(
         color: Colors.transparent,
         child: InkWell(

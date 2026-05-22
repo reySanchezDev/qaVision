@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qavision/core/services/capture_service.dart';
+import 'package:qavision/core/services/clipboard_service.dart';
 import 'package:qavision/core/services/file_system_service.dart';
 import 'package:qavision/core/services/native_screen_capture_service.dart';
 import 'package:qavision/features/capture/domain/entities/capture_entity.dart';
@@ -13,7 +14,6 @@ import 'package:qavision/features/floating_button/presentation/constants/floatin
 import 'package:qavision/features/projects/domain/entities/project_entity.dart';
 import 'package:qavision/features/projects/domain/repositories/i_project_repository.dart';
 import 'package:qavision/features/projects/presentation/bloc/project_bloc.dart';
-import 'package:qavision/core/services/clipboard_service.dart';
 
 class _InMemoryProjectRepository implements IProjectRepository {
   _InMemoryProjectRepository(this._projects);
@@ -156,23 +156,6 @@ class _InMemoryProjectRepository implements IProjectRepository {
     _projects = _projects
         .map((item) => item.id == project.id ? project : item)
         .toList(growable: false);
-  }
-
-  int _resolveLeastUsedIndex(List<ProjectEntity> projects) {
-    var index = 0;
-    for (var i = 1; i < projects.length; i++) {
-      final current = projects[i];
-      final candidate = projects[index];
-      if (current.usageCount < candidate.usageCount) {
-        index = i;
-        continue;
-      }
-      if (current.usageCount == candidate.usageCount &&
-          current.lastUsedAt < candidate.lastUsedAt) {
-        index = i;
-      }
-    }
-    return index;
   }
 }
 
@@ -376,7 +359,8 @@ void main() {
     });
 
     test(
-      'reemplaza el slot rapido aun cuando el almacenamiento ya llego al maximo',
+      'reemplaza el slot rapido aun cuando el almacenamiento ya llego '
+      'al maximo',
       () async {
         projectRepository = _InMemoryProjectRepository(
           <ProjectEntity>[
@@ -444,9 +428,7 @@ void main() {
           projectRepository: projectRepository,
           projectBloc: projectBloc,
           captureBloc: captureBloc,
-        );
-
-        floatingBloc.add(const FloatingButtonStarted());
+        )..add(const FloatingButtonStarted());
         await _drainQueue();
 
         floatingBloc.add(
@@ -457,16 +439,17 @@ void main() {
         );
         await _drainQueue();
 
+        final state = floatingBloc.state;
         expect(
-          floatingBloc.state.projects[1].folderPath,
+          state.projects[1].folderPath,
           'C:/tmp/qavision/NuevoSlot',
         );
         expect(
-          floatingBloc.state.quickProjectIds[1],
-          floatingBloc.state.projects[1].id,
+          state.quickProjectIds[1],
+          state.projects[1].id,
         );
         expect(
-          floatingBloc.state.activeProject?.folderPath,
+          state.activeProject?.folderPath,
           'C:/tmp/qavision/NuevoSlot',
         );
       },

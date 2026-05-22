@@ -15,6 +15,7 @@ const int _kWindowsExcludeFromCaptureAffinity = 0x00000011;
 
 /// Sesión viva de grabación de video.
 class VideoRecordingSession {
+  /// Crea una sesion viva de grabacion.
   VideoRecordingSession({
     required this.outputPath,
     required Process process,
@@ -61,8 +62,8 @@ class VideoRecordingSession {
     await _stderrSubscription.cancel();
 
     final file = File(outputPath);
-    final exists = await file.exists();
-    final length = exists ? await file.length() : 0;
+    final exists = file.existsSync();
+    final length = exists ? file.lengthSync() : 0;
 
     return VideoRecordingStopResult(
       outputPath: outputPath,
@@ -82,6 +83,7 @@ class VideoRecordingSession {
 
 /// Resultado al terminar una sesión de grabación.
 class VideoRecordingStopResult {
+  /// Crea un resultado de detencion de grabacion.
   const VideoRecordingStopResult({
     required this.outputPath,
     required this.exitCode,
@@ -90,10 +92,19 @@ class VideoRecordingStopResult {
     required this.log,
   });
 
+  /// Ruta donde se esperaba o se guardo el video.
   final String outputPath;
+
+  /// Codigo de salida de ffmpeg.
   final int exitCode;
+
+  /// Indica si el archivo de video realmente existe en disco.
   final bool exists;
+
+  /// Tamano del archivo de video en bytes.
   final int bytesLength;
+
+  /// Registro de salida de consola (stdout y stderr).
   final String log;
 
   /// Indica si el video quedó listo para usarse.
@@ -161,8 +172,6 @@ class VideoRecordingService {
     final process = await Process.start(
       ffmpegPath,
       args,
-      runInShell: false,
-      mode: ProcessStartMode.normal,
     );
 
     final buffer = StringBuffer();
@@ -192,10 +201,18 @@ class VideoRecordingService {
       process.kill(ProcessSignal.sigkill);
       await stdoutSub.cancel();
       await stderrSub.cancel();
+      final recentLogs = buffer
+          .toString()
+          .split('\n')
+          .reversed
+          .take(6)
+          .toList()
+          .reversed
+          .join('\n');
       throw Exception(
         'ffmpeg falló al arrancar (Código $startupResult).\n'
         'Logs recientes:\n'
-        '${buffer.toString().split('\n').reversed.take(6).toList().reversed.join('\n')}',
+        '$recentLogs',
       );
     }
 

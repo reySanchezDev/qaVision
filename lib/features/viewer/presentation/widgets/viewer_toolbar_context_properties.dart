@@ -1,6 +1,6 @@
+import 'package:flex_color_picker/flex_color_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flex_color_picker/flex_color_picker.dart';
 import 'package:qavision/features/viewer/domain/entities/image_frame_component.dart';
 import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
@@ -90,7 +90,8 @@ class ViewerToolbarContextProperties extends StatelessWidget {
     final effectiveColor = selectedAnnotation?.color ?? state.activeColor;
     final effectiveStrokeWidth =
         selectedAnnotation?.strokeWidth ?? state.activeStrokeWidth;
-    final effectiveTextSize = selectedAnnotation?.textSize ?? state.activeTextSize;
+    final effectiveTextSize =
+        selectedAnnotation?.textSize ?? state.activeTextSize;
     final effectiveOpacity = selectedAnnotation?.opacity ?? state.activeOpacity;
     final effectiveFontFamily =
         selectedAnnotation?.fontFamily ?? state.activeFontFamily;
@@ -137,8 +138,8 @@ class ViewerToolbarContextProperties extends StatelessWidget {
         icon: isRichTextPanelTool
             ? Icons.format_color_text
             : Icons.palette_outlined,
-        selectedColor: isRichTextPanelTool &&
-                richTextRuntime?.selectedTextColor != null
+        selectedColor:
+            isRichTextPanelTool && richTextRuntime?.selectedTextColor != null
             ? richTextRuntime!.selectedTextColor!
             : effectiveColor,
         swatches: _strokeColorOptions,
@@ -344,8 +345,8 @@ class ViewerToolbarContextProperties extends StatelessWidget {
               ),
               ViewerToolbarColorField(
                 icon: Icons.format_color_fill,
-                label: null,
-                selectedColor: canFormatSelection &&
+                selectedColor:
+                    canFormatSelection &&
                         runtime!.selectedHighlightColor != null
                     ? runtime.selectedHighlightColor!
                     : effectiveHighlightColor,
@@ -353,8 +354,8 @@ class ViewerToolbarContextProperties extends StatelessWidget {
                 dialogTitle: 'Color del resaltado',
                 recentColors: _viewerRecentHighlightColors,
                 tooltip: 'Color del resaltado',
-                clearActionLabel: canFormatSelection &&
-                        (runtime!.highlightActive)
+                clearActionLabel:
+                    canFormatSelection && (runtime!.highlightActive)
                     ? 'Quitar resaltado'
                     : null,
                 onClearSelected: canFormatSelection && runtime!.highlightActive
@@ -457,7 +458,6 @@ class ViewerToolbarContextProperties extends StatelessWidget {
     return [
       if (showLeadingSeparator) const ViewerToolbarGroupSeparator(),
       ViewerToolbarColorField(
-        label: null,
         icon: Icons.crop_square_rounded,
         selectedColor: image.style.backgroundColor,
         swatches: _frameBackgroundOptions,
@@ -900,7 +900,6 @@ class _ViewerToolbarPanelStyleMenuState
             ),
           ),
           Slider(
-            min: 0,
             max: 8,
             divisions: 16,
             value: _borderWidth.clamp(0, 8),

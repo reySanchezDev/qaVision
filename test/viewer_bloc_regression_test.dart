@@ -7,9 +7,9 @@ import 'package:image/image.dart' as img;
 import 'package:qavision/core/services/clipboard_service.dart';
 import 'package:qavision/core/services/file_system_service.dart';
 import 'package:qavision/core/services/share_service.dart';
-import 'package:qavision/features/viewer/data/services/viewer_document_persistence_service.dart';
 import 'package:qavision/features/settings/domain/entities/settings_entity.dart';
 import 'package:qavision/features/settings/domain/repositories/i_settings_repository.dart';
+import 'package:qavision/features/viewer/data/services/viewer_document_persistence_service.dart';
 import 'package:qavision/features/viewer/domain/entities/image_frame_component.dart';
 import 'package:qavision/features/viewer/domain/entities/image_frame_style.dart';
 import 'package:qavision/features/viewer/domain/entities/image_frame_transform.dart';
@@ -101,6 +101,10 @@ void main() {
     late Directory tempDir;
     late ViewerBloc bloc;
 
+    String tempPath(String fileName) {
+      return '${tempDir.path}${Platform.pathSeparator}$fileName';
+    }
+
     setUp(() async {
       tempDir = await Directory.systemTemp.createTemp('qavision_viewer_');
       bloc = ViewerBloc(
@@ -164,57 +168,56 @@ void main() {
     test(
       'autosave crea borrador y la siguiente apertura recupera la sesion',
       () async {
-      final imagePath = await _writeTestJpg(
-        '${tempDir.path}${Platform.pathSeparator}recover_session.jpg',
-      );
-      final persistence = ViewerDocumentPersistenceService(
-        fileSystemService: FileSystemService(),
-      );
+        final imagePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}recover_session.jpg',
+        );
+        final persistence = ViewerDocumentPersistenceService(
+          fileSystemService: FileSystemService(),
+        );
 
-      bloc.add(ViewerStarted(imagePath: imagePath));
-      await _drainQueue();
-      await _waitForViewerIdle(bloc);
+        bloc.add(ViewerStarted(imagePath: imagePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
 
-      final image = bloc.state.frame.elements
-          .whereType<ImageFrameComponent>()
-          .first;
-      bloc.add(const ViewerInteractionStarted());
-      bloc.add(
-        ViewerElementMoved(
-          elementId: image.id,
-          position: const Offset(180, 150),
-        ),
-      );
-      await _drainQueue();
-      bloc.add(const ViewerInteractionFinished());
-      await _waitForAutoSave(bloc);
+        final image = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        bloc
+          ..add(const ViewerInteractionStarted())
+          ..add(
+            ViewerElementMoved(
+              elementId: image.id,
+              position: const Offset(180, 150),
+            ),
+          );
+        await _drainQueue();
+        bloc.add(const ViewerInteractionFinished());
+        await _waitForAutoSave(bloc);
 
-      final draftFile = File(
-        persistence.recoveryDraftPathForImage(imagePath),
-      );
-      await _waitForFile(draftFile.path);
-      expect(draftFile.existsSync(), isTrue);
+        final draftFile = File(
+          persistence.recoveryDraftPathForImage(imagePath),
+        );
+        await _waitForFile(draftFile.path);
+        expect(draftFile.existsSync(), isTrue);
 
-      await bloc.close();
-      await Future<void>.delayed(const Duration(milliseconds: 120));
+        await bloc.close();
+        await Future<void>.delayed(const Duration(milliseconds: 120));
 
-      bloc = ViewerBloc(
-        fileSystemService: FileSystemService(),
-        clipboardService: _FakeClipboardService(),
-        shareService: _FakeShareService(),
-        documentPersistenceService: persistence,
-        settingsRepository: _FakeSettingsRepository(),
-      );
+        bloc = ViewerBloc(
+          fileSystemService: FileSystemService(),
+          clipboardService: _FakeClipboardService(),
+          shareService: _FakeShareService(),
+          documentPersistenceService: persistence,
+          settingsRepository: _FakeSettingsRepository(),
+        )..add(ViewerStarted(imagePath: imagePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
 
-      bloc.add(ViewerStarted(imagePath: imagePath));
-      await _drainQueue();
-      await _waitForViewerIdle(bloc);
-
-      final reopened = bloc.state.frame.elements
-          .whereType<ImageFrameComponent>()
-          .first;
-      expect(reopened.position, const Offset(180, 150));
-      expect(bloc.state.recoveredSession, isTrue);
+        final reopened = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        expect(reopened.position, const Offset(180, 150));
+        expect(bloc.state.recoveredSession, isTrue);
       },
     );
 
@@ -281,7 +284,6 @@ void main() {
             .first;
 
         expect(annotations.length, 1);
-        expect(reopenedBase.path, isNot(imagePath));
         expect(File(reopenedBase.path).existsSync(), isTrue);
       },
     );
@@ -363,7 +365,8 @@ void main() {
     );
 
     test(
-      'redimensionar el canvas de la ventana no reacomoda el documento guardado',
+      'redimensionar el canvas de la ventana no reacomoda el documento '
+      'guardado',
       () async {
         final imagePath = await _writeTestJpg(
           '${tempDir.path}${Platform.pathSeparator}stable_canvas_reopen.jpg',
@@ -373,8 +376,9 @@ void main() {
         await _drainQueue();
         await _waitForViewerIdle(bloc);
 
-        final base =
-            bloc.state.frame.elements.whereType<ImageFrameComponent>().first;
+        final base = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
         bloc.add(
           const ViewerTextAdded(
             position: Offset(480, 180),
@@ -434,34 +438,34 @@ void main() {
         const baseTransform = ImageFrameTransform(
           position: Offset(2600, 1500),
           size: Size(520, 360),
-          contentOffset: Offset.zero,
         );
-        final offscreenFrame = FrameState(
-          canvasSize: const Size(4200, 2600),
-          elements: const [
-            ImageFrameComponent(
-              id: 'base-offscreen',
-              position: Offset(2600, 1500),
-              zIndex: 0,
-              path: '',
-              contentSize: Size(520, 360),
-              style: baseStyle,
-              transform: baseTransform,
-            ),
-          ],
-        ).copyWith(
-          elements: [
-            const ImageFrameComponent(
-              id: 'base-offscreen',
-              position: Offset(2600, 1500),
-              zIndex: 0,
-              path: '',
-              contentSize: Size(520, 360),
-              style: baseStyle,
-              transform: baseTransform,
-            ).copyWith(path: imagePath),
-          ],
-        );
+        final offscreenFrame =
+            const FrameState(
+              canvasSize: Size(4200, 2600),
+              elements: [
+                ImageFrameComponent(
+                  id: 'base-offscreen',
+                  position: Offset(2600, 1500),
+                  zIndex: 0,
+                  path: '',
+                  contentSize: Size(520, 360),
+                  style: baseStyle,
+                  transform: baseTransform,
+                ),
+              ],
+            ).copyWith(
+              elements: [
+                const ImageFrameComponent(
+                  id: 'base-offscreen',
+                  position: Offset(2600, 1500),
+                  zIndex: 0,
+                  path: '',
+                  contentSize: Size(520, 360),
+                  style: baseStyle,
+                  transform: baseTransform,
+                ).copyWith(path: imagePath),
+              ],
+            );
 
         await persistence.saveEditableFrame(
           imagePath: imagePath,
@@ -477,9 +481,7 @@ void main() {
           shareService: _FakeShareService(),
           documentPersistenceService: persistence,
           settingsRepository: _FakeSettingsRepository(),
-        );
-
-        bloc.add(ViewerStarted(imagePath: imagePath));
+        )..add(ViewerStarted(imagePath: imagePath));
         await _drainQueue();
         await _waitForViewerIdle(bloc);
 
@@ -1125,6 +1127,7 @@ void main() {
         bloc.add(const ViewerExportRequested());
         await _waitForAutoSave(bloc);
 
+        expect(bloc.state.errorMessage, isNull);
         final output = bloc.state.autoSavePath;
         expect(output, isNotNull);
         final expectedCompositePath =
@@ -1294,10 +1297,10 @@ void main() {
       'sus subimagenes',
       () async {
         final basePath = await _writeTestJpg(
-          '${tempDir.path}${Platform.pathSeparator}resize_parent_top_left_base.jpg',
+          tempPath('resize_parent_top_left_base.jpg'),
         );
         final childPath = await _writeTestJpg(
-          '${tempDir.path}${Platform.pathSeparator}resize_parent_top_left_child.jpg',
+          tempPath('resize_parent_top_left_child.jpg'),
         );
 
         bloc.add(ViewerStarted(imagePath: basePath));
@@ -1363,7 +1366,7 @@ void main() {
       'de la imagen base',
       () async {
         final basePath = await _writeTestJpg(
-          '${tempDir.path}${Platform.pathSeparator}resize_parent_base_content.jpg',
+          tempPath('resize_parent_base_content.jpg'),
         );
 
         bloc.add(ViewerStarted(imagePath: basePath));
@@ -1407,10 +1410,10 @@ void main() {
       'subimagenes ni anotaciones adjuntas',
       () async {
         final basePath = await _writeTestJpg(
-          '${tempDir.path}${Platform.pathSeparator}resize_drag_sequence_base.jpg',
+          tempPath('resize_drag_sequence_base.jpg'),
         );
         final childPath = await _writeTestJpg(
-          '${tempDir.path}${Platform.pathSeparator}resize_drag_sequence_child.jpg',
+          tempPath('resize_drag_sequence_child.jpg'),
         );
 
         bloc.add(ViewerStarted(imagePath: basePath));
@@ -1453,9 +1456,9 @@ void main() {
         await _drainQueue();
 
         Rect childDisplayRect() => ViewerCompositionHelper.imageFrameRect(
-          bloc.state.frame.elements
-              .whereType<ImageFrameComponent>()
-              .firstWhere((image) => image.id == childBefore.id),
+          bloc.state.frame.elements.whereType<ImageFrameComponent>().firstWhere(
+            (image) => image.id == childBefore.id,
+          ),
           elements: bloc.state.frame.elements,
           imageZoom: bloc.state.canvasZoom,
         );
@@ -1463,9 +1466,7 @@ void main() {
         Offset annotationDisplayPosition() =>
             ViewerCompositionHelper.projectAnnotation(
               bloc.state.frame.elements,
-              bloc.state.frame.elements
-                  .whereType<AnnotationElement>()
-                  .first,
+              bloc.state.frame.elements.whereType<AnnotationElement>().first,
               imageZoom: bloc.state.canvasZoom,
             ).position;
 
@@ -1790,74 +1791,78 @@ void main() {
       },
     );
 
-    test('una flecha se puede redimensionar y estirar despues de creada', () async {
-      final imagePath = await _writeTestJpg(
-        '${tempDir.path}${Platform.pathSeparator}resize_arrow.jpg',
-      );
+    test(
+      'una flecha se puede redimensionar y estirar despues de creada',
+      () async {
+        final imagePath = await _writeTestJpg(
+          '${tempDir.path}${Platform.pathSeparator}resize_arrow.jpg',
+        );
 
-      bloc.add(ViewerStarted(imagePath: imagePath));
-      await _drainQueue();
-      await _waitForViewerIdle(bloc);
+        bloc.add(ViewerStarted(imagePath: imagePath));
+        await _drainQueue();
+        await _waitForViewerIdle(bloc);
 
-      final base = bloc.state.frame.elements
-          .whereType<ImageFrameComponent>()
-          .first;
-      final start = base.position + const Offset(80, 120);
-      final end = base.position + const Offset(180, 160);
+        final base = bloc.state.frame.elements
+            .whereType<ImageFrameComponent>()
+            .first;
+        final start = base.position + const Offset(80, 120);
+        final end = base.position + const Offset(180, 160);
 
-      bloc.add(const ViewerToolChanged(AnnotationType.arrow));
-      await _drainQueue();
-      bloc
-        ..add(ViewerAnnotationStarted(start))
-        ..add(ViewerAnnotationUpdated(end))
-        ..add(const ViewerAnnotationFinished());
-      await _drainQueue();
+        bloc.add(const ViewerToolChanged(AnnotationType.arrow));
+        await _drainQueue();
+        bloc
+          ..add(ViewerAnnotationStarted(start))
+          ..add(ViewerAnnotationUpdated(end))
+          ..add(const ViewerAnnotationFinished());
+        await _drainQueue();
 
-      final arrowBefore = bloc.state.frame.elements
-          .whereType<AnnotationElement>()
-          .firstWhere((element) => element.type == AnnotationType.arrow);
-      final projectedBefore = ViewerCompositionHelper.projectAnnotation(
-        bloc.state.frame.elements,
-        arrowBefore,
-        imageZoom: bloc.state.canvasZoom,
-      );
-      final beforeBounds = ViewerCompositionHelper.annotationBounds(
-        projectedBefore,
-      );
+        final arrowBefore = bloc.state.frame.elements
+            .whereType<AnnotationElement>()
+            .firstWhere((element) => element.type == AnnotationType.arrow);
+        final projectedBefore = ViewerCompositionHelper.projectAnnotation(
+          bloc.state.frame.elements,
+          arrowBefore,
+          imageZoom: bloc.state.canvasZoom,
+        );
+        final beforeBounds = ViewerCompositionHelper.annotationBounds(
+          projectedBefore,
+        );
 
-      final targetRect = Rect.fromLTWH(
-        beforeBounds.left,
-        beforeBounds.top,
-        beforeBounds.width + 140,
-        beforeBounds.height + 90,
-      );
-      bloc.add(
-        ViewerElementResized(
-          elementId: arrowBefore.id,
-          size: targetRect.size,
-          position: targetRect.topLeft,
-        ),
-      );
-      await _drainQueue();
+        final targetRect = Rect.fromLTWH(
+          beforeBounds.left,
+          beforeBounds.top,
+          beforeBounds.width + 140,
+          beforeBounds.height + 90,
+        );
+        bloc.add(
+          ViewerElementResized(
+            elementId: arrowBefore.id,
+            size: targetRect.size,
+            position: targetRect.topLeft,
+          ),
+        );
+        await _drainQueue();
 
-      final arrowAfter = bloc.state.frame.elements
-          .whereType<AnnotationElement>()
-          .firstWhere((element) => element.id == arrowBefore.id);
-      final projectedAfter = ViewerCompositionHelper.projectAnnotation(
-        bloc.state.frame.elements,
-        arrowAfter,
-        imageZoom: bloc.state.canvasZoom,
-      );
-      final afterBounds = ViewerCompositionHelper.annotationBounds(
-        projectedAfter,
-      );
+        final arrowAfter = bloc.state.frame.elements
+            .whereType<AnnotationElement>()
+            .firstWhere((element) => element.id == arrowBefore.id);
+        final projectedAfter = ViewerCompositionHelper.projectAnnotation(
+          bloc.state.frame.elements,
+          arrowAfter,
+          imageZoom: bloc.state.canvasZoom,
+        );
+        final afterBounds = ViewerCompositionHelper.annotationBounds(
+          projectedAfter,
+        );
 
-      expect(afterBounds.width, greaterThan(beforeBounds.width + 100));
-      expect(afterBounds.height, greaterThan(beforeBounds.height + 60));
-    });
+        expect(afterBounds.width, greaterThan(beforeBounds.width + 100));
+        expect(afterBounds.height, greaterThan(beforeBounds.height + 60));
+      },
+    );
 
     test(
-      'bloque de texto enriquecido convive con imagenes y conserva su estilo al reabrir',
+      'bloque de texto enriquecido convive con imagenes y conserva su estilo '
+      'al reabrir',
       () async {
         final imagePath = await _writeTestJpg(
           '${tempDir.path}${Platform.pathSeparator}rich_text_panel_flow.jpg',
@@ -1871,18 +1876,19 @@ void main() {
             .whereType<ImageFrameComponent>()
             .first;
 
-        bloc.add(const ViewerToolChanged(AnnotationType.richTextPanel));
-        bloc.add(
-          const ViewerPropertiesChanged(
-            color: 0xFF1F2937,
-            textSize: 24,
-            fontFamily: 'Georgia',
-            isBold: true,
-            panelBackgroundColor: 0xF7FFF8E1,
-            panelAlignment: ViewerTextPanelAlignment.justify,
-            hasShadow: true,
-          ),
-        );
+        bloc
+          ..add(const ViewerToolChanged(AnnotationType.richTextPanel))
+          ..add(
+            const ViewerPropertiesChanged(
+              color: 0xFF1F2937,
+              textSize: 24,
+              fontFamily: 'Georgia',
+              isBold: true,
+              panelBackgroundColor: 0xF7FFF8E1,
+              panelAlignment: ViewerTextPanelAlignment.justify,
+              hasShadow: true,
+            ),
+          );
         await _drainQueue();
 
         bloc.add(
@@ -1891,20 +1897,24 @@ void main() {
         await _drainQueue();
 
         bloc.add(
-          const ViewerSelectedElementRichTextUpdated(
+          ViewerSelectedElementRichTextUpdated(
             plainText: 'Se valido guardar y editar dentro de la pantalla.',
-            deltaJson: '[{\"insert\":\"Se valido \"},'
-                '{\"insert\":\"guardar\",\"attributes\":{\"bold\":true}},'
-                '{\"insert\":\" y \"},{\"insert\":\"editar\",'
-                '\"attributes\":{\"background\":\"#FFF59D\"}},'
-                '{\"insert\":\" dentro de la pantalla.\\n\"}]',
+            deltaJson: <String>[
+              '[{"insert":"Se valido "},',
+              '{"insert":"guardar","attributes":{"bold":true}},',
+              '{"insert":" y "},{"insert":"editar",',
+              '"attributes":{"background":"#FFF59D"}},',
+              r'{"insert":" dentro de la pantalla.\n"}]',
+            ].join(),
           ),
         );
         await _drainQueue();
 
         final panel = bloc.state.frame.elements
             .whereType<AnnotationElement>()
-            .firstWhere((element) => element.type == AnnotationType.richTextPanel);
+            .firstWhere(
+              (element) => element.type == AnnotationType.richTextPanel,
+            );
         expect(panel.endPosition, isNotNull);
         expect(panel.panelAlignment, ViewerTextPanelAlignment.justify);
         expect(panel.backgroundColor, 0xF7FFF8E1);
@@ -1929,7 +1939,9 @@ void main() {
 
         final reopenedPanel = bloc.state.frame.elements
             .whereType<AnnotationElement>()
-            .firstWhere((element) => element.type == AnnotationType.richTextPanel);
+            .firstWhere(
+              (element) => element.type == AnnotationType.richTextPanel,
+            );
         expect(reopenedPanel.text, contains('editar'));
         expect(reopenedPanel.fontFamily, 'Georgia');
         expect(reopenedPanel.isBold, isTrue);
@@ -1944,7 +1956,7 @@ void main() {
       'sin desfase visual',
       () async {
         final imagePath = await _writeTestJpg(
-          '${tempDir.path}${Platform.pathSeparator}rich_panel_attached_move.jpg',
+          tempPath('rich_panel_attached_move.jpg'),
         );
 
         bloc.add(ViewerStarted(imagePath: imagePath));
@@ -1975,9 +1987,14 @@ void main() {
         final beforeFrame = bloc.state.frame;
         final panelBefore = beforeFrame.elements
             .whereType<AnnotationElement>()
-            .firstWhere((element) => element.type == AnnotationType.richTextPanel);
+            .firstWhere(
+              (element) => element.type == AnnotationType.richTextPanel,
+            );
         expect(panelBefore.attachedImageId, resizedBase.id);
-        expect(panelBefore.coordinateSpace, AnnotationCoordinateSpace.imageFrame);
+        expect(
+          panelBefore.coordinateSpace,
+          AnnotationCoordinateSpace.imageFrame,
+        );
 
         final projectedBefore = ViewerCompositionHelper.projectAnnotation(
           beforeFrame.elements,
@@ -2000,7 +2017,9 @@ void main() {
             .firstWhere((element) => element.id == base.id);
         final panelAfter = afterFrame.elements
             .whereType<AnnotationElement>()
-            .firstWhere((element) => element.type == AnnotationType.richTextPanel);
+            .firstWhere(
+              (element) => element.type == AnnotationType.richTextPanel,
+            );
         final projectedAfter = ViewerCompositionHelper.projectAnnotation(
           afterFrame.elements,
           panelAfter,

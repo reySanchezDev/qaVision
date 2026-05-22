@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:flex_color_picker/flex_color_picker.dart';
+import 'package:flutter/material.dart';
 
 const _kViewerToolbarSurface = Color(0xFF1C1D21);
 const _kViewerToolbarBorder = Color(0x1FFFFFFF);
@@ -76,8 +76,8 @@ class ViewerToolbarToolButton extends StatelessWidget {
               decoration: BoxDecoration(
                 color: framed
                     ? selected
-                        ? _kViewerToolbarSelected.withValues(alpha: 0.12)
-                        : _kViewerToolbarSurface
+                          ? _kViewerToolbarSelected.withValues(alpha: 0.12)
+                          : _kViewerToolbarSurface
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(10),
                 border: framed
@@ -407,14 +407,16 @@ class ViewerToolbarColorDropdown extends StatefulWidget {
       _ViewerToolbarColorDropdownState();
 }
 
-class _ViewerToolbarColorDropdownState extends State<ViewerToolbarColorDropdown> {
+class _ViewerToolbarColorDropdownState
+    extends State<ViewerToolbarColorDropdown> {
   final GlobalKey _anchorKey = GlobalKey();
 
   Future<void> _openMenu() async {
     final context = _anchorKey.currentContext;
     if (context == null) return;
     final box = context.findRenderObject() as RenderBox?;
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
     if (box == null || overlay == null) return;
 
     final rect = Rect.fromPoints(

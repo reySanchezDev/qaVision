@@ -1,0 +1,6 @@
+Listas de mejoras:
+
+Mejora 1:
+Actualmente cuando grabamos video se abre una ventana donde te muestra opciones para sleeccionar el area a grabar, tambien dejamos opciones para seleccionar las pantallas abiertas, para eso se deben enlistar las pantallas en miniaturas para que el usuario seleccione la pantalla y el grabador de video grabe solo la pantalla seleccionada, tambien debez considerar las pantallas que el usuario tenga abierta y que este proyectando en otro monitos, recorda que un QA probablemente tenga mas de un monitor adicional y ahi tenga pantallas abiertas asi que hay que considerarlas.
+
+Otra mejora que se debe aplicar es: Cuando se cierra la herramienta desde el botonde cerrar en la pantalla flotante, el proceso queda abierto, esto lo pude confirmar en el administrador de tarea, y eso ocaciona que por alguna razon se ve afectado el teclado, si el usuario preciona una tecla, por ejemplo: si quiere escribir en word, windows no reconce las teclas  y si mato el proceso windos se recuepra y ya se puede escribir, esto es muy raro, es como un secuestro.

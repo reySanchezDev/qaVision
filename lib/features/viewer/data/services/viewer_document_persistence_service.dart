@@ -128,7 +128,7 @@ class ViewerDocumentPersistenceService {
     return ViewerDocumentLoadResult(
       frame: await buildDefaultFrame(imagePath, defaults: defaults),
       recoveredFromDraft: false,
-      canvasZoom: 1.0,
+      canvasZoom: 1,
     );
   }
 
@@ -318,7 +318,7 @@ class ViewerDocumentPersistenceService {
             (canvasRaw['width'] as num?)?.toDouble() ?? 1500.0,
             (canvasRaw['height'] as num?)?.toDouble() ?? 900.0,
           )
-        : const Size(1500.0, 900.0);
+        : const Size(1500, 900);
     final backgroundColor = (json['backgroundColor'] as int?) ?? 0xFF111111;
 
     final elementsRaw = json['elements'];
@@ -351,8 +351,10 @@ class ViewerDocumentPersistenceService {
             (raw['contentWidth'] as num?)?.toDouble() ?? targetWidth;
         final contentHeight =
             (raw['contentHeight'] as num?)?.toDouble() ?? targetHeight;
-        final contentOffsetX = (raw['contentOffsetX'] as num?)?.toDouble() ?? 0.0;
-        final contentOffsetY = (raw['contentOffsetY'] as num?)?.toDouble() ?? 0.0;
+        final contentOffsetX =
+            (raw['contentOffsetX'] as num?)?.toDouble() ?? 0.0;
+        final contentOffsetY =
+            (raw['contentOffsetY'] as num?)?.toDouble() ?? 0.0;
         final parentImageId = (raw['parentImageId'] as String?)?.trim();
 
         parsedElements.add(
@@ -426,7 +428,8 @@ class ViewerDocumentPersistenceService {
         (value) => value.name == coordinateSpaceName,
         orElse: () => AnnotationCoordinateSpace.workspace,
       );
-      final panelAlignmentName = (raw['panelAlignment'] as String?)?.trim() ?? '';
+      final panelAlignmentName =
+          (raw['panelAlignment'] as String?)?.trim() ?? '';
       final panelAlignment = ViewerTextPanelAlignment.values.firstWhere(
         (value) => value.name == panelAlignmentName,
         orElse: () => ViewerTextPanelAlignment.justify,
@@ -440,11 +443,11 @@ class ViewerDocumentPersistenceService {
           textSize: (raw['textSize'] as num?)?.toDouble() ?? 20.0,
           opacity: (raw['opacity'] as num?)?.toDouble() ?? 1.0,
           text: (raw['text'] as String?) ?? '',
-          richTextDelta: (raw['richTextDelta'] as String?)?.trim().isNotEmpty ==
-                  true
+          richTextDelta:
+              (raw['richTextDelta'] as String?)?.trim().isNotEmpty ?? false
               ? (raw['richTextDelta'] as String)
               : null,
-          fontFamily: (raw['fontFamily'] as String?)?.trim().isNotEmpty == true
+          fontFamily: (raw['fontFamily'] as String?)?.trim().isNotEmpty ?? false
               ? (raw['fontFamily'] as String).trim()
               : 'Segoe UI',
           isBold: (raw['isBold'] as bool?) ?? false,
@@ -706,101 +709,106 @@ class ViewerDocumentPersistenceService {
     FrameState frame, {
     required int documentVersion,
   }) {
-    final migrated = frame.elements.map((element) {
-      if (element is! AnnotationElement) {
-        return element;
-      }
-      if (element.attachedImageId == null || element.attachedImageId!.isEmpty) {
-        return element;
-      }
-
-      final attachedImage = _findImageById(
-        frame.elements,
-        element.attachedImageId!,
-      );
-      if (attachedImage == null) {
-        return element;
-      }
-
-      if (element.type == AnnotationType.richTextPanel) {
-        if (documentVersion < 6 &&
-            element.coordinateSpace == AnnotationCoordinateSpace.imageFrame) {
-          final viewportTopLeft = attachedImage.contentViewportRect.topLeft;
-          return element.copyWith(
-            position: element.position - viewportTopLeft,
-            endPosition: element.endPosition == null
-                ? null
-                : element.endPosition! - viewportTopLeft,
-            points: element.points
-                .map((point) => point - viewportTopLeft)
-                .toList(growable: false),
-            coordinateSpace: AnnotationCoordinateSpace.imageFrame,
-          );
-        }
-        if (element.coordinateSpace == AnnotationCoordinateSpace.imageFrame) {
-          return element;
-        }
-
-        Offset toImageFrame(Offset point) {
-          if (element.coordinateSpace ==
-              AnnotationCoordinateSpace.imageContent) {
-            final canvasPoint = ViewerCompositionHelper.imageContentPointToCanvas(
-              attachedImage,
-              point,
-              elements: frame.elements,
-            );
-            return ViewerCompositionHelper.canvasPointToImageFrame(
-              attachedImage,
-              canvasPoint,
-              elements: frame.elements,
-            );
+    final migrated = frame.elements
+        .map((element) {
+          if (element is! AnnotationElement) {
+            return element;
           }
-          return ViewerCompositionHelper.canvasPointToImageFrame(
-            attachedImage,
-            point,
-            elements: frame.elements,
+          if (element.attachedImageId == null ||
+              element.attachedImageId!.isEmpty) {
+            return element;
+          }
+
+          final attachedImage = _findImageById(
+            frame.elements,
+            element.attachedImageId!,
           );
-        }
+          if (attachedImage == null) {
+            return element;
+          }
 
-        return element.copyWith(
-          position: toImageFrame(element.position),
-          endPosition: element.endPosition == null
-              ? null
-              : toImageFrame(element.endPosition!),
-          points: element.points
-              .map(toImageFrame)
-              .toList(growable: false),
-          coordinateSpace: AnnotationCoordinateSpace.imageFrame,
-        );
-      }
+          if (element.type == AnnotationType.richTextPanel) {
+            if (documentVersion < 6 &&
+                element.coordinateSpace ==
+                    AnnotationCoordinateSpace.imageFrame) {
+              final viewportTopLeft = attachedImage.contentViewportRect.topLeft;
+              return element.copyWith(
+                position: element.position - viewportTopLeft,
+                endPosition: element.endPosition == null
+                    ? null
+                    : element.endPosition! - viewportTopLeft,
+                points: element.points
+                    .map((point) => point - viewportTopLeft)
+                    .toList(growable: false),
+                coordinateSpace: AnnotationCoordinateSpace.imageFrame,
+              );
+            }
+            if (element.coordinateSpace ==
+                AnnotationCoordinateSpace.imageFrame) {
+              return element;
+            }
 
-      if (element.coordinateSpace == AnnotationCoordinateSpace.imageContent ||
-          element.coordinateSpace == AnnotationCoordinateSpace.imageFrame) {
-        return element;
-      }
-
-      return element.copyWith(
-        position: ViewerCompositionHelper.canvasPointToImageContent(
-          attachedImage,
-          element.position,
-        ),
-        endPosition: element.endPosition == null
-            ? null
-            : ViewerCompositionHelper.canvasPointToImageContent(
-                attachedImage,
-                element.endPosition!,
-              ),
-        points: element.points
-            .map(
-              (point) => ViewerCompositionHelper.canvasPointToImageContent(
+            Offset toImageFrame(Offset point) {
+              if (element.coordinateSpace ==
+                  AnnotationCoordinateSpace.imageContent) {
+                final canvasPoint =
+                    ViewerCompositionHelper.imageContentPointToCanvas(
+                      attachedImage,
+                      point,
+                      elements: frame.elements,
+                    );
+                return ViewerCompositionHelper.canvasPointToImageFrame(
+                  attachedImage,
+                  canvasPoint,
+                  elements: frame.elements,
+                );
+              }
+              return ViewerCompositionHelper.canvasPointToImageFrame(
                 attachedImage,
                 point,
-              ),
-            )
-            .toList(growable: false),
-        coordinateSpace: AnnotationCoordinateSpace.imageContent,
-      );
-    }).toList(growable: false);
+                elements: frame.elements,
+              );
+            }
+
+            return element.copyWith(
+              position: toImageFrame(element.position),
+              endPosition: element.endPosition == null
+                  ? null
+                  : toImageFrame(element.endPosition!),
+              points: element.points.map(toImageFrame).toList(growable: false),
+              coordinateSpace: AnnotationCoordinateSpace.imageFrame,
+            );
+          }
+
+          if (element.coordinateSpace ==
+                  AnnotationCoordinateSpace.imageContent ||
+              element.coordinateSpace == AnnotationCoordinateSpace.imageFrame) {
+            return element;
+          }
+
+          return element.copyWith(
+            position: ViewerCompositionHelper.canvasPointToImageContent(
+              attachedImage,
+              element.position,
+            ),
+            endPosition: element.endPosition == null
+                ? null
+                : ViewerCompositionHelper.canvasPointToImageContent(
+                    attachedImage,
+                    element.endPosition!,
+                  ),
+            points: element.points
+                .map(
+                  (point) => ViewerCompositionHelper.canvasPointToImageContent(
+                    attachedImage,
+                    point,
+                  ),
+                )
+                .toList(growable: false),
+            coordinateSpace: AnnotationCoordinateSpace.imageContent,
+          );
+        })
+        .toList(growable: false);
 
     return frame.copyWith(elements: migrated);
   }
@@ -814,6 +822,7 @@ class ViewerDocumentPersistenceService {
     }
     return null;
   }
+
   static List<CanvasElement> _normalizeZ(List<CanvasElement> elements) {
     final images = elements.whereType<ImageFrameComponent>().toList(
       growable: false,

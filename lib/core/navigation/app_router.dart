@@ -11,6 +11,17 @@ class AppRouter {
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
   static Future<void>? _closeSystemInFlight;
+  static AppWindowRole? _currentRole;
+  static Future<void> Function()? _localShutdown;
+
+  /// Registra el rol y el callback de cierre del proceso actual.
+  static void configureCurrentProcess({
+    required AppWindowRole role,
+    required Future<void> Function() shutdown,
+  }) {
+    _currentRole = role;
+    _localShutdown = shutdown;
+  }
 
   /// Abre Configuracion en ventana independiente no modal.
   static Future<void> openSettings() {
@@ -61,7 +72,12 @@ class AppRouter {
   }
 
   static Future<void> _closeSystemInternal() async {
-    await AppWindowSingleInstance.broadcastShutdown();
+    await AppWindowSingleInstance.broadcastShutdown(excludeRole: _currentRole);
+    final shutdown = _localShutdown;
+    if (shutdown != null) {
+      await shutdown();
+      return;
+    }
     await windowManager.destroy();
   }
 }

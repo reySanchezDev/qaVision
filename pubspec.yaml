@@ -1,5 +1,5 @@
 name: qavision
-description: "A new Flutter project."
+description: "Windows-first capture, annotation, and recording tool."
 publish_to: 'none'
 version: 1.0.3+4
 

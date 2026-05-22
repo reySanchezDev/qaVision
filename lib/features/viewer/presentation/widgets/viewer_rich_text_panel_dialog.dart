@@ -84,7 +84,8 @@ class ViewerRichTextPanelDialog {
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      'Tip: selecciona una parte del texto y usa las acciones de arriba para resaltarlo o enfatizarlo.',
+                      'Tip: selecciona una parte del texto y usa las acciones '
+                      'de arriba para resaltarlo o enfatizarlo.',
                       style: TextStyle(fontSize: 12, color: Colors.black54),
                     ),
                     const SizedBox(height: 12),
@@ -100,7 +101,8 @@ class ViewerRichTextPanelDialog {
                         expands: true,
                         textAlignVertical: TextAlignVertical.top,
                         decoration: const InputDecoration(
-                          hintText: 'Describe aqui la evidencia, flujo o hallazgo',
+                          hintText:
+                              'Describe aqui la evidencia, flujo o hallazgo',
                           alignLabelWithHint: true,
                           border: OutlineInputBorder(),
                         ),
@@ -115,7 +117,8 @@ class ViewerRichTextPanelDialog {
                   child: const Text('Cancelar'),
                 ),
                 FilledButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+                  onPressed: () =>
+                      Navigator.of(dialogContext).pop(controller.text),
                   child: const Text('Aplicar'),
                 ),
               ],

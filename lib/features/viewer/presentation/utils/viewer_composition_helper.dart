@@ -885,8 +885,9 @@ class ViewerCompositionHelper {
       );
     }
 
-    final borderWidth =
-        (projected.panelBorderWidth * panelScale).clamp(0, 8).toDouble();
+    final borderWidth = (projected.panelBorderWidth * panelScale)
+        .clamp(0, 8)
+        .toDouble();
     if (borderWidth > 0) {
       canvas.drawRRect(
         rrect,
@@ -919,16 +920,17 @@ class ViewerCompositionHelper {
       if (top >= contentRect.bottom) {
         break;
       }
-      final textPainter = TextPainter(
-        text: TextSpan(children: paragraph.spans),
-        textDirection: TextDirection.ltr,
-        textAlign: _textAlignForPanel(paragraph.alignment),
-      )..layout(
-          minWidth: contentRect.width,
-          maxWidth: contentRect.width,
-        );
-
-      textPainter.paint(canvas, Offset(contentRect.left, top));
+      final textPainter =
+          TextPainter(
+              text: TextSpan(children: paragraph.spans),
+              textDirection: TextDirection.ltr,
+              textAlign: _textAlignForPanel(paragraph.alignment),
+            )
+            ..layout(
+              minWidth: contentRect.width,
+              maxWidth: contentRect.width,
+            )
+            ..paint(canvas, Offset(contentRect.left, top));
       top += textPainter.height;
     }
     canvas.restore();
@@ -965,7 +967,6 @@ class ViewerCompositionHelper {
       math.max(a.dy, b.dy),
     );
   }
-
 
   static List<_RichTextParagraph> _buildRichTextParagraphs(
     AnnotationElement element,

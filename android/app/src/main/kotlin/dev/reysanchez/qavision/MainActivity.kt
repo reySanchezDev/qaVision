@@ -1,4 +1,4 @@
-package com.example.qavision
+package dev.reysanchez.qavision
 
 import io.flutter.embedding.android.FlutterActivity
 

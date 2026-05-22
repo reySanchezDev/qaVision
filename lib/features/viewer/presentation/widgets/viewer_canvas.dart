@@ -227,12 +227,13 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
           elements: state.frame.elements,
           zoom: widget.contentZoom,
         )) {
-          final handle = ViewerCanvasInteractionService.hitTestElementResizeHandle(
-            element: topHit,
-            logicalPoint: displayPoint,
-            elements: state.frame.elements,
-            zoom: widget.contentZoom,
-          );
+          final handle =
+              ViewerCanvasInteractionService.hitTestElementResizeHandle(
+                element: topHit,
+                logicalPoint: displayPoint,
+                elements: state.frame.elements,
+                zoom: widget.contentZoom,
+              );
           _dragMode = _DragMode.resizeElement;
           _dragElementId = topHit.id;
           _elementResizeStartPointer = displayPoint;
@@ -400,12 +401,13 @@ class _ViewerCanvasState extends State<ViewerCanvas> {
         elements: state.frame.elements,
         zoom: widget.contentZoom,
       )) {
-        final handle = ViewerCanvasInteractionService.hitTestElementResizeHandle(
-          element: hit,
-          logicalPoint: displayPoint,
-          elements: state.frame.elements,
-          zoom: widget.contentZoom,
-        );
+        final handle =
+            ViewerCanvasInteractionService.hitTestElementResizeHandle(
+              element: hit,
+              logicalPoint: displayPoint,
+              elements: state.frame.elements,
+              zoom: widget.contentZoom,
+            );
         _dragMode = _DragMode.resizeElement;
         _dragElementId = hit.id;
         _elementResizeStartPointer = displayPoint;

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qavision/core/services/capture_service.dart';
+import 'package:qavision/core/services/clipboard_service.dart';
 import 'package:qavision/core/services/file_system_service.dart';
 import 'package:qavision/core/services/native_screen_capture_service.dart';
 import 'package:qavision/features/capture/domain/entities/capture_entity.dart';
@@ -12,7 +13,6 @@ import 'package:qavision/features/floating_button/presentation/bloc/floating_but
 import 'package:qavision/features/projects/domain/entities/project_entity.dart';
 import 'package:qavision/features/projects/domain/repositories/i_project_repository.dart';
 import 'package:qavision/features/projects/presentation/bloc/project_bloc.dart';
-import 'package:qavision/core/services/clipboard_service.dart';
 
 class _InMemoryProjectRepository implements IProjectRepository {
   _InMemoryProjectRepository(this._projects);

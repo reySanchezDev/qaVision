@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:flutter_quill/flutter_quill.dart' as fq;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_quill/flutter_quill.dart' as fq;
 import 'package:qavision/core/config/app_defaults.dart';
 import 'package:qavision/features/viewer/domain/entities/image_frame_component.dart';
 import 'package:qavision/features/viewer/domain/entities/viewer_entity.dart';
@@ -14,8 +14,8 @@ import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_state.dart';
 import 'package:qavision/features/viewer/presentation/pages/viewer_page_intents.dart';
 import 'package:qavision/features/viewer/presentation/services/viewer_viewport_transform_service.dart';
-import 'package:qavision/features/viewer/presentation/utils/viewer_composition_helper.dart';
 import 'package:qavision/features/viewer/presentation/utils/viewer_canvas_resize_policy.dart';
+import 'package:qavision/features/viewer/presentation/utils/viewer_composition_helper.dart';
 import 'package:qavision/features/viewer/presentation/widgets/recent_captures_strip.dart';
 import 'package:qavision/features/viewer/presentation/widgets/recent_strip/recent_strip_save_indicator.dart';
 import 'package:qavision/features/viewer/presentation/widgets/viewer_canvas.dart';
@@ -61,9 +61,9 @@ class _ViewerPageState extends State<ViewerPage> {
     final showRecentStrip = _resolveShowRecentStrip(context);
     final shortcuts = <ShortcutActivator, Intent>{
       const SingleActivator(LogicalKeyboardKey.keyZ, control: true):
-          ViewerUndoIntent(),
+          const ViewerUndoIntent(),
       const SingleActivator(LogicalKeyboardKey.keyY, control: true):
-          ViewerRedoIntent(),
+          const ViewerRedoIntent(),
     };
     if (!_shouldHandleDeleteAsTextInput()) {
       shortcuts.addAll(const <ShortcutActivator, Intent>{
@@ -149,89 +149,10 @@ class _ViewerPageState extends State<ViewerPage> {
                                             onPointerSignal: _onPointerSignal,
                                             child: LayoutBuilder(
                                               builder: (context, constraints) {
-                                                _lastViewportSize = Size(
-                                                  constraints.maxWidth,
-                                                  constraints.maxHeight,
-                                                );
-                                                final targetWidth = math
-                                                    .max(
-                                                      320,
-                                                      constraints.maxWidth,
-                                                    )
-                                                    .toDouble();
-                                                final targetHeight = math
-                                                    .max(
-                                                      220,
-                                                      constraints.maxHeight,
-                                                    )
-                                                    .toDouble();
-                                                final targetSize = Size(
-                                                  targetWidth,
-                                                  targetHeight,
-                                                );
-                                                _requestFrameResizeIfNeeded(
+                                                return _buildCanvasViewport(
                                                   context: context,
-                                                  targetSize: targetSize,
-                                                  currentSize:
-                                                      state.frame.canvasSize,
-                                                );
-                                                final maxZoom =
-                                                    _maxZoomForState(state);
-                                                final effectiveZoom =
-                                                    state.canvasZoom.clamp(
-                                                  ViewerViewportTransformService
-                                                      .defaultViewMinZoom,
-                                                  maxZoom,
-                                                );
-
-                                                return ClipRect(
-                                                  child: Center(
-                                                    child: DecoratedBox(
-                                                      decoration: BoxDecoration(
-                                                        boxShadow: const [
-                                                          BoxShadow(
-                                                            color:
-                                                                Colors.black38,
-                                                            blurRadius: 20,
-                                                          ),
-                                                        ],
-                                                        borderRadius:
-                                                            BorderRadius
-                                                                .circular(6),
-                                                      ),
-                                                      child:
-                                                          ViewerCanvasDropTarget(
-                                                        child: SizedBox(
-                                                          width: state
-                                                              .frame
-                                                              .canvasSize
-                                                              .width,
-                                                          height: state
-                                                              .frame
-                                                              .canvasSize
-                                                              .height,
-                                                          child: Stack(
-                                                            children: [
-                                                              ViewerCanvas(
-                                                                contentZoom:
-                                                                    effectiveZoom,
-                                                                onRichTextPanelEditRequested:
-                                                                    _beginRichTextEditing,
-                                                                hiddenElementId:
-                                                                    _isRichTextEditing
-                                                                    ? _activeRichTextPanelId
-                                                                    : null,
-                                                              ),
-                                                              ..._buildInlineRichTextOverlays(
-                                                                state,
-                                                                effectiveZoom,
-                                                              ),
-                                                            ],
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
+                                                  constraints: constraints,
+                                                  state: state,
                                                 );
                                               },
                                             ),
@@ -261,6 +182,63 @@ class _ViewerPageState extends State<ViewerPage> {
                   ),
                 );
               },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCanvasViewport({
+    required BuildContext context,
+    required BoxConstraints constraints,
+    required ViewerState state,
+  }) {
+    _lastViewportSize = Size(
+      constraints.maxWidth,
+      constraints.maxHeight,
+    );
+    final targetSize = Size(
+      math.max(320, constraints.maxWidth).toDouble(),
+      math.max(220, constraints.maxHeight).toDouble(),
+    );
+    _requestFrameResizeIfNeeded(
+      context: context,
+      targetSize: targetSize,
+      currentSize: state.frame.canvasSize,
+    );
+
+    final effectiveZoom = state.canvasZoom.clamp(
+      ViewerViewportTransformService.defaultViewMinZoom,
+      _maxZoomForState(state),
+    );
+    final canvasSize = state.frame.canvasSize;
+    final hiddenElementId = _isRichTextEditing ? _activeRichTextPanelId : null;
+    final inlineOverlays = _buildInlineRichTextOverlays(state, effectiveZoom);
+
+    return ClipRect(
+      child: Center(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            boxShadow: const [
+              BoxShadow(color: Colors.black38, blurRadius: 20),
+            ],
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: ViewerCanvasDropTarget(
+            child: SizedBox(
+              width: canvasSize.width,
+              height: canvasSize.height,
+              child: Stack(
+                children: [
+                  ViewerCanvas(
+                    contentZoom: effectiveZoom,
+                    onRichTextPanelEditRequested: _beginRichTextEditing,
+                    hiddenElementId: hiddenElementId,
+                  ),
+                  ...inlineOverlays,
+                ],
+              ),
             ),
           ),
         ),
@@ -300,8 +278,9 @@ class _ViewerPageState extends State<ViewerPage> {
     final panelScale = _richTextPanelScale(panel, displayRect);
     final padding = _richTextPanelPadding(panelScale);
     final borderRadius = (18 * panelScale).clamp(8, 24).toDouble();
-    final borderWidth =
-        (panel.panelBorderWidth * panelScale).clamp(0, 8).toDouble();
+    final borderWidth = (panel.panelBorderWidth * panelScale)
+        .clamp(0, 8)
+        .toDouble();
     final innerRect = Rect.fromLTWH(
       displayRect.left + padding.left,
       displayRect.top + padding.top,
@@ -348,9 +327,6 @@ class _ViewerPageState extends State<ViewerPage> {
                   focusNode: focusNode,
                   scrollController: scrollController,
                   config: fq.QuillEditorConfig(
-                    autoFocus: false,
-                    padding: EdgeInsets.zero,
-                    scrollable: true,
                     expands: true,
                     enableSelectionToolbar: false,
                     showCursor: true,
@@ -398,8 +374,7 @@ class _ViewerPageState extends State<ViewerPage> {
       final controller = fq.QuillController(
         document: _documentFromDeltaJson(nextDelta),
         selection: const TextSelection.collapsed(offset: 0),
-      );
-      controller.addListener(_handleRichTextControllerChanged);
+      )..addListener(_handleRichTextControllerChanged);
       final focusNode = FocusNode();
       focusNode.addListener(() {
         if (!mounted) {
@@ -566,10 +541,11 @@ class _ViewerPageState extends State<ViewerPage> {
   void _applyRichTextColor(int color) {
     final controller = _richTextController;
     if (controller == null) return;
+    final hexColor = _hexColorWithoutAlpha(color);
     controller.formatSelection(
       fq.Attribute.clone(
         fq.Attribute.color,
-        '#${color.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}',
+        hexColor,
       ),
     );
     _flushRichTextControllerToState(force: true);
@@ -579,14 +555,20 @@ class _ViewerPageState extends State<ViewerPage> {
   void _applyRichTextHighlightColor(int color) {
     final controller = _richTextController;
     if (controller == null) return;
+    final hexColor = _hexColorWithoutAlpha(color);
     controller.formatSelection(
       fq.Attribute.clone(
         fq.Attribute.background,
-        '#${color.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}',
+        hexColor,
       ),
     );
     _flushRichTextControllerToState(force: true);
     _richTextFocusNode?.requestFocus();
+  }
+
+  String _hexColorWithoutAlpha(int color) {
+    final padded = color.toRadixString(16).padLeft(8, '0');
+    return '#${padded.substring(2).toUpperCase()}';
   }
 
   void _clearRichTextHighlight() {
@@ -602,10 +584,9 @@ class _ViewerPageState extends State<ViewerPage> {
   void _toggleRichTextBold() {
     final controller = _richTextController;
     if (controller == null) return;
-    final hasBold = controller
-        .getSelectionStyle()
-        .attributes
-        .containsKey(fq.Attribute.bold.key);
+    final hasBold = controller.getSelectionStyle().attributes.containsKey(
+      fq.Attribute.bold.key,
+    );
     controller.formatSelection(
       hasBold ? fq.Attribute.clone(fq.Attribute.bold, null) : fq.Attribute.bold,
     );
@@ -616,10 +597,9 @@ class _ViewerPageState extends State<ViewerPage> {
   void _toggleRichTextItalic() {
     final controller = _richTextController;
     if (controller == null) return;
-    final hasItalic = controller
-        .getSelectionStyle()
-        .attributes
-        .containsKey(fq.Attribute.italic.key);
+    final hasItalic = controller.getSelectionStyle().attributes.containsKey(
+      fq.Attribute.italic.key,
+    );
     controller.formatSelection(
       hasItalic
           ? fq.Attribute.clone(fq.Attribute.italic, null)
@@ -838,8 +818,8 @@ class _ViewerPageState extends State<ViewerPage> {
 
   void _zoomIn(ViewerState state) {
     final maxZoom = _maxZoomForState(state);
-    final nextZoom = state.canvasZoom <
-            ViewerViewportTransformService.defaultEditableMinZoom
+    final nextZoom =
+        state.canvasZoom < ViewerViewportTransformService.defaultEditableMinZoom
         ? ViewerViewportTransformService.defaultEditableMinZoom
         : state.canvasZoom + 0.1;
     context.read<ViewerBloc>().add(

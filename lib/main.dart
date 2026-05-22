@@ -3,10 +3,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_quill/flutter_quill.dart';
 import 'package:qavision/core/config/app_defaults.dart';
 import 'package:qavision/core/di/service_locator.dart';
 import 'package:qavision/core/navigation/app_router.dart';
 import 'package:qavision/core/navigation/shell_page.dart';
+import 'package:qavision/core/services/video_recording_runtime_service.dart';
 import 'package:qavision/core/storage/storage_service.dart';
 import 'package:qavision/core/window/app_launch_request.dart';
 import 'package:qavision/core/window/app_window_command.dart';
@@ -21,17 +23,21 @@ import 'package:qavision/features/history/presentation/pages/history_page.dart';
 import 'package:qavision/features/projects/presentation/bloc/project_bloc.dart';
 import 'package:qavision/features/projects/presentation/bloc/project_event.dart';
 import 'package:qavision/features/projects/presentation/pages/project_list_page.dart';
+import 'package:qavision/features/settings/presentation/bloc/settings_bloc.dart';
+import 'package:qavision/features/settings/presentation/bloc/settings_event.dart';
+import 'package:qavision/features/settings/presentation/pages/settings_page.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_event.dart';
 import 'package:qavision/features/viewer/presentation/pages/viewer_page.dart';
 import 'package:qavision/l10n/app_localizations.dart';
-import 'package:flutter_quill/flutter_quill.dart';
 import 'package:window_manager/window_manager.dart';
 
 const _kWindowsRuntimeIconAsset = 'RECURSOS/ico3.ico';
 
 AppWindowSingleInstance? _singleInstanceLock;
+Future<void>? _shutdownInFlight;
 
+/// Punto de entrada principal de la aplicacion.
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -50,6 +56,13 @@ Future<void> main(List<String> args) async {
   final singleInstance = await AppWindowSingleInstance.acquireOrNotify(
     request: launchRequest,
     onCommand: (command) async {
+      if (command.shutdown) {
+        await _shutdownCurrentProcess(
+          projectsOpenCreateController: projectsOpenCreateController,
+          viewerOpenImageController: viewerOpenImageController,
+        );
+        return;
+      }
       await _handleIncomingRoleCommand(
         command,
         role: launchRequest.role,
@@ -76,6 +89,13 @@ Future<void> main(List<String> args) async {
 
   setupServiceLocator();
   await sl<StorageService>().init();
+  AppRouter.configureCurrentProcess(
+    role: launchRequest.role,
+    shutdown: () => _shutdownCurrentProcess(
+      projectsOpenCreateController: projectsOpenCreateController,
+      viewerOpenImageController: viewerOpenImageController,
+    ),
+  );
 
   runApp(
     QAVisionRoleApp(
@@ -93,12 +113,6 @@ Future<void> _handleIncomingRoleCommand(
   StreamController<void>? projectsOpenCreateController,
   void Function(String imagePath)? onViewerImageRequested,
 }) async {
-  if (command.shutdown) {
-    await _singleInstanceLock?.dispose();
-    await windowManager.destroy();
-    exit(0);
-  }
-
   if (command.requestFocus) {
     await windowManager.show();
     await windowManager.focus();
@@ -114,6 +128,102 @@ Future<void> _handleIncomingRoleCommand(
       onViewerImageRequested?.call(imagePath);
     }
   }
+}
+
+Future<void> _shutdownCurrentProcess({
+  StreamController<void>? projectsOpenCreateController,
+  StreamController<String>? viewerOpenImageController,
+}) {
+  final inFlight = _shutdownInFlight;
+  if (inFlight != null) {
+    return inFlight;
+  }
+
+  final shutdown = _shutdownCurrentProcessInternal(
+    projectsOpenCreateController: projectsOpenCreateController,
+    viewerOpenImageController: viewerOpenImageController,
+  );
+  _shutdownInFlight = shutdown;
+  return shutdown;
+}
+
+Future<void> _shutdownCurrentProcessInternal({
+  StreamController<void>? projectsOpenCreateController,
+  StreamController<String>? viewerOpenImageController,
+}) async {
+  await _closeController(projectsOpenCreateController);
+  await _closeController(viewerOpenImageController);
+
+  if (sl.isRegistered<VideoRecordingRuntimeService>()) {
+    final videoRuntime = sl<VideoRecordingRuntimeService>();
+    if (videoRuntime.isRecording) {
+      await videoRuntime.stop().timeout(
+        const Duration(seconds: 6),
+        onTimeout: () {
+          videoRuntime.reset();
+          return null;
+        },
+      );
+    }
+    videoRuntime.dispose();
+  }
+
+  if (sl.isRegistered<StorageService>()) {
+    await sl<StorageService>().dispose().timeout(
+      const Duration(seconds: 1),
+      onTimeout: () {},
+    );
+  }
+
+  final singleInstance = _singleInstanceLock;
+  _singleInstanceLock = null;
+  await singleInstance?.dispose().timeout(
+    const Duration(milliseconds: 600),
+    onTimeout: () {},
+  );
+
+  await _restoreWindowInputBeforeExit();
+  await windowManager.destroy().timeout(
+    const Duration(seconds: 1),
+    onTimeout: () {},
+  );
+  exit(0);
+}
+
+Future<void> _restoreWindowInputBeforeExit() async {
+  await _bestEffortWindowCall(
+    () => windowManager.setIgnoreMouseEvents(false),
+  );
+  await _bestEffortWindowCall(
+    () => windowManager.setPreventClose(false),
+  );
+  await _bestEffortWindowCall(
+    () => windowManager.setAlwaysOnTop(false),
+  );
+  await _bestEffortWindowCall(
+    () => windowManager.setSkipTaskbar(false),
+  );
+}
+
+Future<void> _bestEffortWindowCall(Future<void> Function() call) async {
+  try {
+    await call().timeout(
+      const Duration(milliseconds: 300),
+      onTimeout: () {},
+    );
+  } on Object {
+    // El proceso esta cerrando; solo intentamos soltar estado nativo.
+  }
+}
+
+Future<void> _closeController(StreamController<dynamic>? controller) async {
+  if (controller == null || controller.isClosed) {
+    return;
+  }
+  await controller.close().timeout(
+    const Duration(milliseconds: 250),
+    onTimeout: () {},
+  );
 }
 
 Future<void> _configureWindowForRole(AppWindowRole role) async {
@@ -235,8 +345,14 @@ class _FloatingRootApp extends StatelessWidget {
           create: (_) => sl<ProjectBloc>()..add(const ProjectsLoaded()),
         ),
         BlocProvider(
-          create: (_) =>
-              sl<FloatingButtonBloc>()
+          create: (_) => sl<CaptureBloc>(),
+        ),
+        BlocProvider(
+          create: (context) =>
+              sl<FloatingButtonBloc>(
+                  param1: context.read<ProjectBloc>(),
+                  param2: context.read<CaptureBloc>(),
+                )
                 ..add(const FloatingButtonStarted())
                 ..add(
                   const FloatingButtonSettingsUpdated(
@@ -248,9 +364,6 @@ class _FloatingRootApp extends StatelessWidget {
                     ),
                   ),
                 ),
-        ),
-        BlocProvider(
-          create: (_) => sl<CaptureBloc>(),
         ),
       ],
       child: const _BaseMaterialApp(
@@ -265,28 +378,10 @@ class _SettingsRootApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _BaseMaterialApp(
-      home: _SettingsRemovedPage(),
-    );
-  }
-}
-
-class _SettingsRemovedPage extends StatelessWidget {
-  const _SettingsRemovedPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Configuracion')),
-      body: const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text(
-            'La configuracion persistida fue removida. '
-            'Las capturas ahora se guardan por defecto en calidad maxima.',
-            textAlign: TextAlign.center,
-          ),
-        ),
+    return BlocProvider(
+      create: (_) => sl<SettingsBloc>()..add(const SettingsLoaded()),
+      child: const _BaseMaterialApp(
+        home: SettingsPage(),
       ),
     );
   }
@@ -442,7 +537,7 @@ class _BaseMaterialApp extends StatelessWidget {
       navigatorKey: AppRouter.navigatorKey,
       title: 'QAVision',
       debugShowCheckedModeBanner: false,
-      localizationsDelegates: [
+      localizationsDelegates: const [
         FlutterQuillLocalizations.delegate,
         ...AppLocalizations.localizationsDelegates,
       ],

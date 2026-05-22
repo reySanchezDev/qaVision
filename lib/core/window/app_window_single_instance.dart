@@ -66,14 +66,15 @@ class AppWindowSingleInstance {
   /// Envia un comando al proceso que posee [targetRole].
   static Future<void> sendCommand(
     AppWindowRole targetRole,
-    AppWindowCommand command,
-  ) async {
+    AppWindowCommand command, {
+    Duration timeout = const Duration(milliseconds: 650),
+  }) async {
     Socket? socket;
     try {
       final connectedSocket = await Socket.connect(
         InternetAddress.loopbackIPv4,
         targetRole.singleInstancePort,
-        timeout: const Duration(milliseconds: 650),
+        timeout: timeout,
       );
       socket = connectedSocket;
       connectedSocket.write('${command.toLineJson()}\n');
@@ -86,11 +87,17 @@ class AppWindowSingleInstance {
   }
 
   /// Emite shutdown a todos los roles conocidos.
-  static Future<void> broadcastShutdown() async {
+  static Future<void> broadcastShutdown({AppWindowRole? excludeRole}) async {
     await Future.wait(
-      AppWindowRole.values.map(
-        (role) => sendCommand(role, AppWindowCommand.shutdown()),
-      ),
+      AppWindowRole.values
+          .where((role) => role != excludeRole)
+          .map(
+            (role) => sendCommand(
+              role,
+              AppWindowCommand.shutdown(),
+              timeout: const Duration(milliseconds: 250),
+            ),
+          ),
     );
   }
 
@@ -104,7 +111,7 @@ class AppWindowSingleInstance {
     final lockDirectory = Directory(
       '${Directory.systemTemp.path}${Platform.pathSeparator}qavision_locks',
     );
-    if (!await lockDirectory.exists()) {
+    if (!lockDirectory.existsSync()) {
       await lockDirectory.create(recursive: true);
     }
 
@@ -112,10 +119,10 @@ class AppWindowSingleInstance {
       '${lockDirectory.path}${Platform.pathSeparator}${role.cliValue}.lock',
     );
     final handle = await file.open(mode: FileMode.writeOnlyAppend);
-    await handle.lock(FileLock.exclusive);
+    await handle.lock();
     await handle.setPosition(0);
     await handle.truncate(0);
-    await handle.writeString('${pid}');
+    await handle.writeString('$pid');
     await handle.flush();
     return handle;
   }

@@ -84,7 +84,9 @@ class ProjectListItem extends StatelessWidget {
                 IconButton(
                   icon: const Icon(Icons.edit_outlined),
                   tooltip: l10n.projectsEditButton,
-                  onPressed: () => _showEditModal(context),
+                  onPressed: () {
+                    unawaited(_showEditModal(context));
+                  },
                 ),
                 IconButton(
                   icon: const Icon(Icons.folder_open_outlined),

@@ -4,8 +4,8 @@ import 'package:qavision/core/services/clipboard_service.dart';
 import 'package:qavision/core/services/file_system_service.dart';
 import 'package:qavision/core/services/native_screen_capture_service.dart';
 import 'package:qavision/core/services/share_service.dart';
-import 'package:qavision/core/services/video_recording_service.dart';
 import 'package:qavision/core/services/video_recording_runtime_service.dart';
+import 'package:qavision/core/services/video_recording_service.dart';
 import 'package:qavision/core/storage/storage_service.dart';
 import 'package:qavision/features/capture/data/repositories/capture_repository.dart';
 import 'package:qavision/features/capture/domain/repositories/i_capture_repository.dart';
@@ -18,6 +18,7 @@ import 'package:qavision/features/projects/domain/repositories/i_project_reposit
 import 'package:qavision/features/projects/presentation/bloc/project_bloc.dart';
 import 'package:qavision/features/settings/data/repositories/settings_repository.dart';
 import 'package:qavision/features/settings/domain/repositories/i_settings_repository.dart';
+import 'package:qavision/features/settings/presentation/bloc/settings_bloc.dart';
 import 'package:qavision/features/viewer/data/services/viewer_document_persistence_service.dart';
 import 'package:qavision/features/viewer/presentation/bloc/viewer_bloc.dart';
 
@@ -62,27 +63,27 @@ void setupServiceLocator() {
     ..registerLazySingleton<ISettingsRepository>(
       () => SettingsRepository(storageService: sl<StorageService>()),
     )
-    ..registerLazySingleton<ProjectFolderWatchService>(
+    ..registerFactory<ProjectFolderWatchService>(
       ProjectFolderWatchService.new,
     )
     ..registerLazySingleton<ICaptureRepository>(
       () => CaptureRepository(storageService: sl<StorageService>()),
     )
-    ..registerLazySingleton<ProjectBloc>(
+    ..registerFactory<ProjectBloc>(
       () => ProjectBloc(
         repository: sl<IProjectRepository>(),
         externalChanges: sl<StorageService>().changes,
         folderWatchService: sl<ProjectFolderWatchService>(),
       ),
     )
-    ..registerLazySingleton<FloatingButtonBloc>(
-      () => FloatingButtonBloc(
+    ..registerFactoryParam<FloatingButtonBloc, ProjectBloc, CaptureBloc>(
+      (projectBloc, captureBloc) => FloatingButtonBloc(
         projectRepository: sl<IProjectRepository>(),
-        projectBloc: sl<ProjectBloc>(),
-        captureBloc: sl<CaptureBloc>(),
+        projectBloc: projectBloc,
+        captureBloc: captureBloc,
       ),
     )
-    ..registerLazySingleton<CaptureBloc>(
+    ..registerFactory<CaptureBloc>(
       () => CaptureBloc(
         captureService: sl<CaptureService>(),
         captureRepository: sl<ICaptureRepository>(),
@@ -90,7 +91,7 @@ void setupServiceLocator() {
         fileSystemService: sl<FileSystemService>(),
       ),
     )
-    ..registerLazySingleton<ViewerBloc>(
+    ..registerFactory<ViewerBloc>(
       () => ViewerBloc(
         fileSystemService: sl<FileSystemService>(),
         clipboardService: sl<ClipboardService>(),
@@ -99,7 +100,13 @@ void setupServiceLocator() {
         settingsRepository: sl<ISettingsRepository>(),
       ),
     )
-    ..registerLazySingleton<HistoryBloc>(
+    ..registerFactory<HistoryBloc>(
       () => HistoryBloc(repository: sl<ICaptureRepository>()),
+    )
+    ..registerFactory<SettingsBloc>(
+      () => SettingsBloc(
+        repository: sl<ISettingsRepository>(),
+        externalChanges: sl<StorageService>().changes,
+      ),
     );
 }

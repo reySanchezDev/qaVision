@@ -47,8 +47,8 @@ Future<String> _writeTestJpg(String path) async {
   img.fill(image, color: img.ColorRgb8(210, 60, 60));
   final bytes = img.encodeJpg(image, quality: 90);
   final file = File(path);
-  await file.parent.create(recursive: true);
-  await file.writeAsBytes(bytes, flush: true);
+  file.parent.createSync(recursive: true);
+  file.writeAsBytesSync(bytes);
   return file.path;
 }
 
@@ -61,6 +61,11 @@ Future<void> _waitForViewerIdle(ViewerBloc bloc) async {
     if (!bloc.state.isLoading) return;
     await Future<void>.delayed(const Duration(milliseconds: 100));
   }
+}
+
+Future<void> _settleCanvasFrame(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 120));
 }
 
 void main() {
@@ -110,22 +115,24 @@ void main() {
                 value: bloc,
                 child: const Align(
                   alignment: Alignment.topLeft,
-                  child: ViewerCanvas(contentZoom: 1),
+                  child: ViewerCanvas(),
                 ),
               ),
             ),
           ),
         );
-        await tester.pumpAndSettle();
+        await _settleCanvasFrame(tester);
 
-        bloc.add(const ViewerToolChanged(AnnotationType.stepMarker));
+        bloc
+          ..add(const ViewerZoomChanged(1))
+          ..add(const ViewerToolChanged(AnnotationType.stepMarker));
+        await tester.runAsync(_drain);
         await tester.pump();
 
         final canvasTopLeft = tester.getTopLeft(find.byType(ViewerCanvas));
-        final initialTap = canvasTopLeft + const Offset(220, 180);
-        await tester.tapAt(initialTap);
+        bloc.add(const ViewerAnnotationStarted(Offset(220, 180)));
         await tester.runAsync(_drain);
-        await tester.pumpAndSettle();
+        await _settleCanvasFrame(tester);
 
         final beforeMarker = bloc.state.frame.elements
             .whereType<AnnotationElement>()
@@ -133,7 +140,6 @@ void main() {
         final beforeProjected = ViewerCompositionHelper.projectAnnotation(
           bloc.state.frame.elements,
           beforeMarker,
-          imageZoom: 1,
         );
 
         await tester.dragFrom(
@@ -141,7 +147,7 @@ void main() {
           const Offset(90, 40),
         );
         await tester.runAsync(_drain);
-        await tester.pumpAndSettle();
+        await _settleCanvasFrame(tester);
 
         final markers = bloc.state.frame.elements
             .whereType<AnnotationElement>()
@@ -153,7 +159,6 @@ void main() {
         final afterProjected = ViewerCompositionHelper.projectAnnotation(
           bloc.state.frame.elements,
           afterMarker,
-          imageZoom: 1,
         );
 
         expect(markers.length, 1);
